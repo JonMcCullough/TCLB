@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_ThVisc 
+    Created: 	15-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="128" ny="64">
+         <BGK><Box/></BGK>
+        <NWall mask="ALL" name = "UpperWall">
+			  <Box dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="LowerWall">
+			  <Box ny="1" />
+        </SWall>
+        
+    </Geometry>
+    
+    <Model>
+         <Params 
+            Velocity="0.0"         
+            omegaF="1.0"
+            omegaH="1.0"        
+            GravitationX="0.0"         
+            Density="1"
+            Cv = "0.01"
+            
+            InitTemperature="1.0"
+            InitTemperature-UpperWall="1.0"
+            InitTemperature-LowerWall="0.0"
+                    
+            WallVelocityX-UpperWall="0.0"
+            WallVelocityX-LowerWall="0.0"
+         />
+    </Model>
+    
+    <VTK />
+    <VTK Iterations="100"/>
+    <Solve Iterations="1100"/>
+</CLBConfig>

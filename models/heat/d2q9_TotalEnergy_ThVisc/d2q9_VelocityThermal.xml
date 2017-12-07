@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_heat_CHT_KH 
+    Created: 	07-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="64" ny="128">
+         <BGK><Box/></BGK>
+        <NWall mask="ALL">
+			  <Box dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="LowerWall">
+			  <Box ny="1" />
+        </SWall>
+        
+        <!-- KH Interface requirement
+        <Interface name="Intface">
+             <Box dx="0" nx="64" dy="63" ny="3"/>
+        </Interface>
+        -->
+        
+        <!-- MTHB Interface requirement -->
+        <Interface name="Intface">
+             <Box dx="0" nx="64" dy="64" ny="1"/>
+        </Interface>
+        
+        <None name="MediaInt">
+             <Box dx="0" nx="64" dy="64" ny="1"/>
+        </None>
+        <None name="Media2">
+             <Box dx="0" nx="64" dy="65" ny="63"/>
+        </None>
+    </Geometry>
+    
+    <Model>
+         <Params 
+            Velocity="0.005"         
+            omega="1.0"        
+            GravitationX="0.0"         
+            Density="1"
+            
+            InitTemperature="0.0"
+            InitTemperature-LowerWall="1.0"
+            
+            FluidAlfa="0.16666666"
+            FluidAlfa-Media2="0.1"
+            FluidAlfa-MediaInt="0.13333333333333333"
+            
+            FluidRhoCp="6"
+            FluidRhoCp-Media2="10"
+            FluidRhoCp-MediaInt="7.5"
+            
+            MediaNumber="1"
+            MediaNumber-Media2="2"
+            MediaNumber-MediaInt="1.5"
+            
+            WallVelocityX="0.0"
+            WallVelocityY="0.005"
+            WallVelocityX-LowerWall="0.0"
+            WallVelocityY-LowerWall="0.005"
+         />
+    </Model>
+    
+    <VTK />
+    <VTK Iterations="10000"/>
+    <Solve Iterations="100000"/>
+</CLBConfig>
