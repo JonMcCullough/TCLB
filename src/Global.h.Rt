@@ -19,6 +19,10 @@
 #ifndef GLOBAL_H
     #define BOUNDARY_UX UX_mid
     #define NUMBER_OF_DENSITIES <?%d nrow(DensityAll) ?>
+    
+    #include "MPMD.hpp"
+    extern MPMDHelper MPMD;
+    
 #define GLOBAL_H 1
 #endif
 
@@ -46,6 +50,7 @@ for (m in Margin) { ?>
         int size; ///< MPI size
         int rank; ///< (My) MPI rank
         int gpu; ///< (My) GPU selected
+	int divx, divy, divz; ///< MPI division
     };
 
     void fillSides(MPIInfo, int, int, int);
