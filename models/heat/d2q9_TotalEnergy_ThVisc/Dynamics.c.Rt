@@ -80,6 +80,10 @@ CudaDeviceFunction real_t getT(){
 	} 
 	return  temp;
 }
+
+CudaDeviceFunction real_t calcT(){
+   return Temperature(0,0);
+}
     
 CudaDeviceFunction vector_t getU(){
 	real_t d = <?R C(sum(f)) ?>;
@@ -177,8 +181,8 @@ CudaDeviceFunction void Run() {
     
     if ((NodeType & NODE_ADDITIONALS) == NODE_Interface)
     {
-      CollisionBGK_KH();
-      //CollisionBGK_Tint();
+      //CollisionBGK_KH();
+      CollisionBGK_Tint();
     } else if ((NodeType & NODE_BGK))
     {
 		CollisionBGK();
@@ -787,7 +791,7 @@ CudaDeviceFunction void CollisionBGK_KH() {
 }
 
 CudaDeviceFunction void CollisionBGK_Tint() {
-    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9], E;
     
     // Assume Gravity in y-direction
     real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
@@ -829,6 +833,7 @@ CudaDeviceFunction void CollisionBGK_Tint() {
     ?>
     
     // Temperature Population
+    if (Y==32){
     real_t nrmX, nrmY;
     <?R 
       nrm = PV(c("nrmX","nrmY"))
@@ -858,64 +863,64 @@ CudaDeviceFunction void CollisionBGK_Tint() {
      case 1:
          pcMax = rhoCp(1,0);
          pcMin = rhoCp(-1,0);
-         condMax = rhoCp(1,0)*Conductivity(1,0);
-         condMin = rhoCp(-1,0)*Conductivity(-1,0);
+         condMax = Conductivity(1,0);
+         condMin = Conductivity(-1,0);
          Tmax = Temperature(1,0);
          Tmin = Temperature(-1,0);
          break;
      case 2:
          pcMax = rhoCp(0,1);
          pcMin = rhoCp(0,-1);
-         condMax = rhoCp(0,1)*Conductivity(0,1);
-         condMin = rhoCp(0,-1)*Conductivity(0,-1);
+         condMax = Conductivity(0,1);
+         condMin = Conductivity(0,-1);
          Tmax = Temperature(0,1);
          Tmin = Temperature(0,-1);
          break;
      case 3:
          pcMax = rhoCp(-1,0);
          pcMin = rhoCp(1,0);
-         condMax = rhoCp(-1,0)*Conductivity(-1,0);
-         condMin = rhoCp(1,0)*Conductivity(1,0);
+         condMax = Conductivity(-1,0);
+         condMin = Conductivity(1,0);
          Tmax = Temperature(-1,0);
          Tmin = Temperature(1,0);
          break;
      case 4:
          pcMax = rhoCp(0,-1);
          pcMin = rhoCp(0,1);
-         condMax = rhoCp(0,-1)*Conductivity(0,-1);
-         condMin = rhoCp(0,1)*Conductivity(0,1);
+         condMax = Conductivity(0,-1);
+         condMin = Conductivity(0,1);
          Tmax = Temperature(0,-1);
          Tmin = Temperature(0,1);
          break;
      case 5:
          pcMax = rhoCp(1,1);
          pcMin = rhoCp(-1,-1);
-         condMax = rhoCp(1,1)*Conductivity(1,1);
-         condMin = rhoCp(-1,-1)*Conductivity(-1,-1);
+         condMax = Conductivity(1,1);
+         condMin = Conductivity(-1,-1);
          Tmax = Temperature(1,1);
          Tmin = Temperature(-1,-1);
          break;
      case 6:
          pcMax = rhoCp(-1,1);
          pcMin = rhoCp(1,-1);
-         condMax = rhoCp(-1,1)*Conductivity(-1,1);
-         condMin = rhoCp(1,-1)*Conductivity(1,-1);
+         condMax = Conductivity(-1,1);
+         condMin = Conductivity(1,-1);
          Tmax = Temperature(-1,1);
          Tmin = Temperature(1,-1);
          break;
      case 7:
          pcMax = rhoCp(-1,-1);
          pcMin = rhoCp(1,1);
-         condMax = rhoCp(-1,-1)*Conductivity(-1,-1);
-         condMin = rhoCp(1,1)*Conductivity(1,1);
+         condMax = Conductivity(-1,-1);
+         condMin = Conductivity(1,1);
          Tmax = Temperature(-1,-1);
          Tmin = Temperature(1,1);
          break;
      case 8:
          pcMax = rhoCp(1,-1);
          pcMin = rhoCp(-1,1);
-         condMax = rhoCp(1,-1)*Conductivity(1,-1);
-         condMin = rhoCp(-1,1)*Conductivity(-1,1);
+         condMax = Conductivity(1,-1);
+         condMin = Conductivity(-1,1);
          Tmax = Temperature(1,-1);
          Tmin = Temperature(-1,1);
          break;
@@ -926,11 +931,72 @@ CudaDeviceFunction void CollisionBGK_Tint() {
         
     //real_t Tint = (condMax*Tmax + condMin*Tmin + Temperature(0,0)*(rhoCp(0,0) - condMax - condMin - velterm))/rhoCp(0,0);   
     real_t Tint = (condMax*Tmax + condMin*Tmin)/(condMax + condMin); // + velterm);
-    Temperature  = Tint;   
-    real_t E = Cv*Tint + 0.5*(u[0]*u[0] + u[1]*u[1]); 
+    Temperature  = 0.25; //Tint;   
+    E = Cv*0.25 + 0.5*(u[0]*u[0] + u[1]*u[1]);
+    TotEnergy = E; 
+     } else {E = TotEnergy(0,0);}
      
-    vector_t grad_pC = calcGradInvRhoCp();
-    real_t heatFluxX, heatFluxY;
+     
+      if (Y==32){
+         <?R
+         for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         }
+         for (i in 1:9){ #c(5,8,9)){
+            C(h[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         }
+      ?>
+      } else if (Y==33){
+      E = Cv*0.25; //0.2421875;  //Temperature(0,-1);
+      <?R
+         for (i in 1:9){ #c(3,6,7)){
+            C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         }
+         
+         for (i in 1:9){ #c(3,6,7)){
+            C(h[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         }
+         ?>
+         //E = TotEnergy(0,0);
+         //TotEnergy = E;
+         <?R
+         #for (i in c(1,2,4,5,8,9)){
+         #C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         #}
+         ?>
+      } else if (Y==31){
+      E = Cv*0.25; // 0.2734375;//Temperature(0,1);
+      <?R
+         for (i in 1:9){ #c(5,8,9)){
+            C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         } 
+         for (i in 1:9){ #c(5,8,9)){
+            C(h[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         }
+         ?>
+         //E = TotEnergy(0,0);
+         <?R
+         #for (i in c(1,2,3,4,6,7)){
+         #C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+         #}    
+         ?>
+      } else {
+          E = getTotEnergy();
+          <?R
+          for (i in 1:9) {
+            C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+          }
+         ?>
+      }
+      
+      
+     
+     if (X==8){
+     printf("Y = %d, Cv = %f, T = %f, E = %f, TE = %f \n", Y, Cv, Temperature(0,0), E, TotEnergy(0,0));
+     }
+     
+    //vector_t grad_pC = calcGradInvRhoCp();
+    //real_t heatFluxX, heatFluxY;
     
     <?R
       C(usq, sum(u*u)*(1/c_squ)) 
@@ -941,24 +1007,22 @@ CudaDeviceFunction void CollisionBGK_Tint() {
       
       RhoCp = PV("RhoCp")
       Tint = PV("Tint")
-      heatflux = PV(c("heatFluxX", "heatFluxY"))
-      gradpC = PV(c("grad_pC.x","grad_pC.y"))
+      #heatflux = PV(c("heatFluxX", "heatFluxY"))
+      #gradpC = PV(c("grad_pC.x","grad_pC.y"))
               
-      for (i in 1:9) {
-           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
-      }
+      #for (i in 1:9) {
+      #     C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      #}
           
       for (i in 1:9) {
          C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
       }
 
-      C(heatflux, (h-heq)%*%U)
-
       for (i in 1:9) {
            C(h[i], h[i] + omegaH*(heq[i] -h[i]) + (1.0-0.5*omegaH)*q[i] + (omegaH-omegaF_mod)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
-      }         
-    
+      }
     ?>
+    
 }
 
 CudaDeviceFunction void CollisionBGK_h() {

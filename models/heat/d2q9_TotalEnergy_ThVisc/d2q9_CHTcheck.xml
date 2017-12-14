@@ -14,7 +14,7 @@
         </SWall>
         
          <Interface name="Intface">
-             <Box dx="0" nx="16" dy="32" ny="1"/>
+             <Box dx="0" nx="16" dy="31" ny="3"/>
         </Interface>  
                       
         <None name="MediaInt">
