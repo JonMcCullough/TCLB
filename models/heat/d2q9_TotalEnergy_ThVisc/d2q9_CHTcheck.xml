@@ -4,7 +4,7 @@
     By:		J.McCullough -->
 <CLBConfig version="2.0" output="output/">
    
-    <Geometry nx="16" ny="64">
+    <Geometry nx="16" ny="60">
          <BGK><Box/></BGK>
         <NWall mask="ALL" name = "UpperWall">
 			  <Box dy="-1"/>
@@ -14,14 +14,11 @@
         </SWall>
         
          <Interface name="Intface">
-             <Box dx="0" nx="16" dy="31" ny="3"/>
+             <Box dx="0" nx="16" dy="29" ny="2"/>
         </Interface>  
-                      
-        <None name="MediaInt">
-             <Box dx="0" nx="16" dy="32" ny="1"/>
-        </None>
+        
         <None name="Media2">
-             <Box dx="0" nx="16" dy="33" ny="30"/>
+             <Box dx="0" nx="16" dy="30" ny="29"/>
         </None>
         
         
@@ -39,24 +36,20 @@
             omegaH="1.0"
             omegaH-Media2="0.8"
             omegaH-UpperWall="0.8"
-            omegaH-MediaInt="0.888888888888888888888888"
             
             Cv = "1.0"
             Cv-Media2="2.0"
             Cv-UpperWall="2.0"
-            Cv-MediaInt="1.5"
             
             RhoCp = "1.0"
             RhoCp-Media2="2.0"
             RhoCp-UpperWall="2.0"
-            RhoCp-MediaInt="1.5"
             
             MediaNumber="1"
             MediaNumber-Media2="2"
             MediaNumber-UpperWall="2"
-            MediaNumber-MediaInt="1.5"
             
-            InitTemperature="0.5"
+            InitTemperature="1.0"
             InitTemperature-UpperWall="0.0"
             InitTemperature-LowerWall="1.0"
                     
@@ -70,4 +63,5 @@
     <VTK />
     <VTK Iterations="1000"/>
     <Solve Iterations="20000"/>
+    <VTK />
 </CLBConfig>
