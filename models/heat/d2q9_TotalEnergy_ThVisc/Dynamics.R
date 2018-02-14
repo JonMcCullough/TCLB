@@ -49,8 +49,11 @@ AddField('mediaNum', stencil2d=1)
 
 AddQuantity(name="Rho",unit="kg/m3")
 AddQuantity(name="T",unit="K")
+AddQuantity(name="T2",unit="K")
 AddQuantity(name="U",unit="m/s",vector=T)
 AddQuantity(name="TotEnergy")
+AddQuantity(name="TE2")
+AddQuantity(name="Cv")
 
 AddSetting(name="omegaF", zonal=TRUE, comment='one over F relaxation time')
 #AddSetting(name="nu", default="0.16666666", comment='viscosity')
@@ -93,10 +96,17 @@ AddSetting(name="AccelY", default=0.0, comment='body acceleration Y')
 
 AddSetting(name="MediaNumber", default=1, zonal=TRUE, comment='Media Number')
 
+AddSetting(name="Period", default="0", comment='Number of cells per cos wave')
+AddSetting(name="MidX", default="0", comment="middle of x-axis")
+AddSetting(name="MidY", default="0", comment="middle of y-axis")
+
 AddNodeType(name="NWall", group="BOUNDARY")
 AddNodeType(name="EWall", group="BOUNDARY")
 AddNodeType(name="WWall", group="BOUNDARY")
 AddNodeType(name="SWall", group="BOUNDARY")
+AddNodeType(name="NWall_cos", group="BOUNDARY")
+AddNodeType(name="SWall_cos", group="BOUNDARY")
 
 AddNodeType(name="Interface", group="ADDITIONALS")
+AddNodeType(name="Med2", group="ADDITIONALS")
 
