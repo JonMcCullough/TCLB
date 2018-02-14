@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_CHT 
+    Created: 	30-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="60" ny="60">
+         <BGK><Box/></BGK>
+        <NWall mask="ALL" name = "UpperWall">
+			  <Box dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="LowerWall">
+			  <Box ny="1" />
+        </SWall>
+        
+         <Interface name="Intface">
+             <Sphere   dx="10" dy="10" ny="40" nx="40"/>
+        </Interface>  
+        
+        <BGK mask="ALL" name="Med2">
+             <Sphere  dy="12" dx="12" nx="36" ny="36" />
+        </BGK>
+        
+        <None name="Media2">
+             <Sphere  dy="11" dx="11" nx="38" ny="38" />
+        </None>
+        
+        
+        
+    </Geometry>
+    
+    <Model>
+         <Params 
+            Velocity="0.0"        
+            omegaF="1.0"       
+            GravitationX="0.0"         
+            Density="1"
+            ViscCoeff = "0.0"
+            
+            omegaH="1.0"
+            omegaH-Media2="0.8"
+            
+            Cv = "1.0"
+            Cv-Media2="2.0"
+            
+            RhoCp = "1.0"
+            RhoCp-Media2="2.0"
+            
+            MediaNumber="1"
+            MediaNumber-Media2="2"
+            
+            InitTemperature="0.0"
+            InitTemperature-Media2="1.0"
+                    
+            WallVelocityY-UpperWall="0.00"
+            WallVelocityY-LowerWall="0.00"
+            
+            InitVelocityY="0.000"
+         />
+    </Model>
+    
+    <VTK />
+    <VTK Iterations="1000"/>
+    <Solve Iterations="20000"/>
+</CLBConfig>

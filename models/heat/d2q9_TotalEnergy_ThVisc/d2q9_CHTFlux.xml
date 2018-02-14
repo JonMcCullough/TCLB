@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_CHT 
+    Created: 	30-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="65" ny="64">
+         <BGK><Box/></BGK>
+        <NWall_cos mask="ALL" name = "UpperWall">
+			  <Box dy="-1"/>
+        </NWall_cos>
+		  <SWall_cos mask="ALL" name="LowerWall">
+			  <Box ny="1" />
+        </SWall_cos>
+        
+         <Interface name="Intface">
+             <Box dx="0" nx="65" dy="31" ny="2"/>
+        </Interface>  
+        
+        <None name="Media2">
+             <Box dx="0" nx="65" dy="32" ny="31"/>
+        </None>
+        
+        
+        
+    </Geometry>
+    <!-- velocity U = 20*alphalow/(ly-1); for current figures = 10/(3(ly-1))-->
+    <!-- Period = lx -->
+    <Model>
+         <Params        
+            omegaF="1.0"       
+            GravitationX="0.0"         
+            Density="1"
+            ViscCoeff = "0.0"
+            
+            Period="65"
+            
+            omegaH="1.0"
+            omegaH-Media2="0.8"
+            omegaH-UpperWall="0.8"
+            
+            Cv = "1.0"
+            Cv-Media2="2.0"
+            Cv-UpperWall="2.0"
+            
+            RhoCp = "1.0"
+            RhoCp-Media2="2.0"
+            RhoCp-UpperWall="2.0"
+            
+            MediaNumber="1"
+            MediaNumber-Media2="2"
+            MediaNumber-UpperWall="2"
+            
+            InitTemperature="0.0"
+            InitTemperature-UpperWall="0.0"
+            InitTemperature-LowerWall="0.0"
+                  
+                    
+            WallVelocityX-UpperWall="0.0529100529100"
+            WallVelocityX-LowerWall="0.0529100529100"
+            
+            InitVelocityX="0.0529100529100"
+         />
+    </Model>
+    
+    <VTK />
+    <VTK Iterations="1000"/>
+    <Solve Iterations="20000"/>
+    <VTK />
+</CLBConfig>
