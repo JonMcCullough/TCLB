@@ -924,16 +924,16 @@ CudaDeviceFunction void CollisionBGK_Tint() {
     
     // Temperature Population
     
-    real_t nrmX, nrmY;
+    real_t nrmX, nrmY, length;
     real_t direction = 1.0;
     <?R 
       nrm = PV(c("nrmX","nrmY"))
       mediaNum = PV("mediaNum(",U[,1],",",U[,2],")")
       C(nrm, t(U) %*% mediaNum)
 	 ?>
-	 	 
-	 nrmX = nrmX/sqrt(nrmX*nrmX + nrmY*nrmY + 1e-12);
-	 nrmY = nrmY/sqrt(nrmX*nrmX + nrmY*nrmY + 1e-12);
+         length = sqrt(nrmX*nrmX + nrmY*nrmY + 1e-12);	 
+	 nrmX = nrmX/length;
+	 nrmY = nrmY/length;
 	 	 
 	 // JM Reorient the normal to account for which side of interface we are on.
 	 // Currently should work for straight boundaries only.
@@ -1095,23 +1095,7 @@ CudaDeviceFunction void CollisionBGK_Tint() {
       tGradX = tGradX/sqrt(2);
       tGradY = tGradY/sqrt(2);
     }
-   /*
-   if(X==82){
-      printf("A at (%d,%d), imax = %d, direction = %.1f, Tgrad (n,p) = (%.4f,%.4f), (x,y) = (%.4f,%.4f)\n", X, Y, iMax, direction, tGradN, tGradP, tGradX, tGradY);
-      printf("A at (%d,%d), Tint = %.4f, T = %.4f, Tmin = %.4f, norm = (%.4f, %.4f) \n", X, Y, Tint, Temperature, Tmin, nrmX, nrmY);
-   }
-   if(Y==82){
-      printf("B at (%d,%d), imax = %d, direction = %.1f, Tgrad (n,p) = (%.4f,%.4f), (x,y) = (%.4f,%.4f)\n", X, Y, iMax, direction, tGradN, tGradP, tGradX, tGradY);
-      printf("B at (%d,%d), Tint = %.4f, T = %.4f, Tmin = %.4f, norm = (%.4f, %.4f) \n", X, Y, Tint, Temperature, Tmin, nrmX, nrmY);
-   }
-   
-   if(Y==X){
-      printf("C at (%d,%d), imax = %d, direction = %.1f, Tgrad (n,p) = (%.4f,%.4f), (x,y) = (%.4f,%.4f)\n", X, Y, iMax, direction, tGradN, tGradP, tGradX, tGradY);
-   }
-   if(Y==165-X){
-      printf("D at (%d,%d), imax = %d, direction = %.1f, Tgrad (n,p) = (%.4f,%.4f), (x,y) = (%.4f,%.4f)\n", X, Y, iMax, direction, tGradN, tGradP, tGradX, tGradY);
-   }
-   */            
+        
       <?R
       for (i in 1:9) {
         C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
@@ -1119,7 +1103,7 @@ CudaDeviceFunction void CollisionBGK_Tint() {
       ?>
       
       for (int i=0; i<3; i++){
-         h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(Cv*(condSignX*tGradX + condSignY*tGradY)/omegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) - 3.0*(Cv*(tGradX*(u[0] + u[1]) + tGradY*(u[0] + u[1])))/omegaH + 9.0*(2.0/3.0 + 0.5*Cv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
+         h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(Cv*(condSignX*tGradX + condSignY*tGradY)/omegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) + 6.0*(Cv*(condSignX*tGradX*(u[0] + u[1]) + condSignY*tGradY*(u[0] + u[1])))/omegaH + 18.0*(2.0/3.0 + 0.5*Cv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
       }
          
     <?R

@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_CHT 
+    Created: 	30-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="165" ny="165">
+         <Solid><Box/></Solid>
+         
+         <BGK mask="ALL" name="Media1">
+             <Sphere  dx="2" dy="2" nx="161" ny="161" />
+         </BGK> 
+         
+         <Interface name="Intface">
+             <Box   dx="40" dy="40" ny="85" nx="85"/>
+         </Interface>
+        
+         <BGK mask="ALL" name="Med2">
+             <Box  dx="42" dy="42" nx="81" ny="81" />
+         </BGK>
+        
+         <None name="Media2">
+             <Box  dx="41" dy="41" nx="83" ny="83" />
+         </None>
+           
+    </Geometry>
+      
+     <!--     -->
+    
+    <Model>
+         <Params 
+            Velocity="0.0"        
+            omegaF="1.0"       
+            GravitationX="0.0"         
+            Density="1"
+            ViscCoeff = "0.0"
+            
+            MidX="82"
+            MidY="82"
+            
+            omegaH="1.0"
+            omegaH-Media2="0.8"
+            
+            Cv = "1.0"
+            Cv-Media2="2.0"
+            
+            RhoCp = "1.0"
+            RhoCp-Media2="2.0"
+            
+            MediaNumber="1"
+            MediaNumber-Media2="2"
+            
+            InitTemperature="0.0"
+            InitTemperature-Media2="0.0"
+              
+         />
+    </Model>
+    
+    <VTK />
+    <VTK Iterations="1000"/>
+    <Solve Iterations="20000"/>
+</CLBConfig>
