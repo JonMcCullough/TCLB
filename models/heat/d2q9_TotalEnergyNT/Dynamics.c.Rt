@@ -1,0 +1,1487 @@
+
+#define S2 1.3333
+#define S3 1.0
+#define S5 1.0
+#define S7 1.0
+#define S8 omega
+#define S9 omega
+
+#include <math.h>
+#define PI 3.1415926535897
+
+<?R 
+	source("conf.R") 
+	f = PV(DensityAll$name[DensityAll$group=="f"])
+	h = PV(DensityAll$name[DensityAll$group=="h"])
+	U = as.matrix(DensityAll[DensityAll$group=="f",c("dx","dy")])
+
+
+	u = PV(paste("u[",1:2-1,"]",sep=""))
+	
+	uf = PV("uf")
+	d = PV("d")
+	usq = PV("usq")
+	omegaF = PV("omegaF")
+        uf1 = uf;
+        uf2 = uf;
+        uf3 = uf;
+#	omega = 1.0
+
+	fh = PV(DensityAll$name[1:9+9])
+
+
+
+t1 = 4/9
+t2 = 1/9
+t3 = 1/36
+c_squ = 1/3
+
+tn = diag(c(t1,t2,t2,t2,t2,t3,t3,t3,t3))
+bounce = c(0,3,4,1,2,7,8,5,6)
+
+?>
+
+CudaDeviceFunction real_t getRho(){
+	return <?R C(sum(f)) ?> ;
+}
+
+CudaDeviceFunction real_t getSolid(){
+	return sol;
+}
+
+CudaDeviceFunction real_t getTotEnergy(){
+	 real_t d = <?R C(sum(h)) ?> ;
+	 real_t p = <?R C(sum(f)) ?> ;
+    vector_t u = getU();
+    
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    real_t temp =  (d/p + 0.5*(u.x*(AccelX + GravitationX) + u.y*(AccelY + localGravitationY)));
+    if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall) || ((NodeType & NODE_BOUNDARY) == NODE_EWall)|| ((NodeType & NODE_BOUNDARY) == NODE_WWall) ||((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+      { 
+         temp = localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);
+         
+         if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall))
+	      {
+	         temp = localCv*(InitTemperature  + WallTemperatureGradient*X) + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);
+	      }
+	      if (((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+	      {
+	         temp = localCv*(cos(2.0*PI*X/Period) + WallTemperatureGradient*X) + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);
+	      }
+      }  
+    return temp;
+}
+
+CudaDeviceFunction real_t getTE2(){
+   vector_t u = getU();
+	return  localCv*Temperature(0,0) + 0.5*(u.x*u.x + u.y+u.y);
+}
+
+CudaDeviceFunction real_t getT(){
+   real_t temp = getTotEnergy();
+   vector_t u = getU();
+    
+   temp = ((temp - 0.5*(u.x*u.x + u.y*u.y))/localCv);
+   
+   if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall) || ((NodeType & NODE_BOUNDARY) == NODE_EWall)|| ((NodeType & NODE_BOUNDARY) == NODE_WWall) || ((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+	{ 
+	   temp = InitTemperature;
+	   
+	   if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall))
+	   {
+	      temp = InitTemperature + WallTemperatureGradient*X;
+	   }
+	   
+	   if (((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+	   {
+	      temp = cos(2.0*PI*X/Period) + WallTemperatureGradient*X;
+	   }
+	} 
+	return  temp;
+}
+
+
+CudaDeviceFunction real_t getT2(){
+	return  Temperature(0,0);
+}
+
+CudaDeviceFunction real_t getCv(){
+	return localCv;
+}
+    
+CudaDeviceFunction vector_t getU(){
+	real_t d = <?R C(sum(f)) ?>;
+	vector_t u;
+<?R C(PV(c("u.x","u.y")), f %*% U) ?>
+//	u.x /= d;
+//	u.y /= d;
+	u.z = 0.0;
+	
+	if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall) || ((NodeType & NODE_BOUNDARY) == NODE_EWall)|| ((NodeType & NODE_BOUNDARY) == NODE_WWall) || ((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+	{ 
+	   u.x = WallVelocityX;
+	   u.y = WallVelocityY;
+	}
+	
+	return u;
+}
+
+CudaDeviceFunction vector_t calcGradInvRhoCp(){
+   vector_t gradInvRhoCp;
+   gradInvRhoCp.x = (rhoCp(-1,0) - rhoCp(1,0))/(2.0*rhoCp(-1,0)*rhoCp(1,0));
+   gradInvRhoCp.y = (rhoCp(0,-1) - rhoCp(0,1))/(2.0*rhoCp(0,-1)*rhoCp(0,1));
+   gradInvRhoCp.z = 0.0;
+   return gradInvRhoCp;
+}
+
+CudaDeviceFunction void SetEquilibrum(const real_t d, const real_t u[2])
+{	real_t usq, uf;
+<?R C(usq, sum(u*u)*(1/c_squ)) ?>
+<?R
+	for (i in 1:9) {
+         cat("//--",i,"-------------------------------------------------\n")
+         C( uf1, (u %*% t(U) * (1/c_squ))[i])
+         C( uf2, uf1 + (uf1*uf1+usq*(-1))*0.5 + 1)
+         C( uf3, d * uf2)
+         C( f[i], uf3 * tn[i,i])
+        }
+?>
+
+}
+
+CudaDeviceFunction void Init() {
+	real_t u[2] = {InitVelocityX,InitVelocityY};
+	real_t d = 1.0;
+	SetEquilibrum(d,u);
+	
+	sol = 0;
+        sol = CalcSolid();
+        localCv = sol*SolidCv + (1.0 - sol)*FluidCv;
+        localConductivity = sol*SolidConductivity + (1.0 - sol)*FluidConductivity;
+        localRho = sol*SolidRho + (1.0 - sol)*FluidRho;
+   
+        rhoCp = localRho * localCv;
+        Conductivity = localConductivity;
+        localOmegaH = 1.0/(3.0*localConductivity/rhoCp + 0.5);
+
+
+//	for (int i =0; i<9;i++) h[i] = 0;
+	<?R for (i in 1:9) { ?>
+		h[<?%d i-1 ?>] = (localCv*InitTemperature + 0.5*(u[0]*u[0] + u[1]*u[1]))*<?%f tn[i,i] ?>;
+	<?R }?>
+	
+	Temperature = InitTemperature;
+	TotEnergy = localCv*Temperature + 0.5*(u[0]*u[0] + u[1]*u[1]);
+
+
+	mediaNum = MediaNumber;
+	
+	if (MidX>0){  //Radial conduction test
+	   real_t theta = atan((Y-MidY)/(X-MidX));
+	   
+	   if((X==MidX)&&(Y==MidY)){
+	   Temperature = 0.0;
+	   }
+	   else{
+	      if(X<0){	theta = PI + theta;}
+	      Temperature = cos(2.0*theta);
+	   }
+	   TotEnergy = localCv*Temperature + 0.5*(u[0]*u[0] + u[1]*u[1]);
+	  
+	}
+	
+	if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall) || ((NodeType & NODE_BOUNDARY) == NODE_EWall)|| ((NodeType & NODE_BOUNDARY) == NODE_WWall))
+	{ 
+	   if (((NodeType & NODE_BOUNDARY) == NODE_NWall) || ((NodeType & NODE_BOUNDARY) == NODE_SWall))
+	   {
+	      Temperature = InitTemperature + WallTemperatureGradient*X;
+	   }
+	   
+	   if (((NodeType & NODE_BOUNDARY) == NODE_NWall_cos) || ((NodeType & NODE_BOUNDARY) == NODE_SWall_cos))
+	   {
+	      Temperature = cos(2.0*PI*X/Period) + WallTemperatureGradient*X;
+	   }
+	   
+	   TotEnergy = localCv*Temperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);
+	   
+	   
+	  <?R for (i in 1:9) { ?>
+		     h[<?%d i-1 ?>] = (localCv*Temperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY))*<?%f tn[i,i] ?>;
+	  <?R }?>
+	} 
+	
+	if ((NodeType & NODE_BOUNDARY) == NODE_Solid){
+	   OuterRing();// For verification of annular conduction
+	}
+}
+
+CudaDeviceFunction void Run() {
+    sol = 0;
+    sol = CalcSolid();
+
+    localCv = sol*SolidCv + (1.0 - sol)*FluidCv;
+    localConductivity = sol*SolidConductivity + (1.0 - sol)*FluidConductivity;
+    localRho = sol*SolidRho + (1.0 - sol)*FluidRho;
+ 
+    Conductivity = localConductivity; 
+    rhoCp = localRho * localCv;
+    localOmegaH = 1.0/(3.0*localConductivity/rhoCp + 0.5);
+   
+
+    TotEnergy = getTotEnergy();
+    Temperature = getT();
+    
+    mediaNum = MediaNumber;
+   
+    switch (NodeType & NODE_BOUNDARY) {
+	case NODE_Solid:
+	   OuterRing(); // For verification of annular conduction
+	   break;
+	   
+	case NODE_Wall:
+		BounceBack();
+		break;
+	case NODE_SWall:
+		NonEquilibriumExtrapolationS();
+		CollisionBGK();
+		//CollisionTRT();
+		break;
+	case NODE_NWall:
+		NonEquilibriumExtrapolationN();
+		CollisionBGK();
+		//CollisionTRT();
+		break;
+   case NODE_EWall:
+      NonEquilibriumExtrapolationE();
+		CollisionBGK();
+		//CollisionTRT();
+      break;
+      
+   case NODE_WWall:
+      NonEquilibriumExtrapolationW();
+		CollisionBGK();
+		//CollisionTRT();
+      break;
+      
+   case NODE_SWall_cos:
+      //InitTemperature = cos(2.0*PI*X/Period);
+		NonEquilibriumExtrapolationS();
+		CollisionBGK();
+		//CollisionTRT();
+		break;
+	case NODE_NWall_cos:
+	   //InitTemperature = cos(2.0*PI*X/Period);
+		NonEquilibriumExtrapolationN();
+		CollisionBGK();
+		//CollisionTRT();
+		break;
+    }
+    
+    if ((NodeType & NODE_ADDITIONALS) == NODE_Interface)
+    {
+      //CollisionBGK_KH();
+      CollisionBGK_Tint();
+    } else if ((NodeType & NODE_BGK))
+    {
+		CollisionBGK_CalcF();
+		//CollisionTRT();
+    } 
+}
+
+CudaDeviceFunction void BounceBack()
+{
+     real_t uf, uT;
+     #define dump 1
+<?R
+  uT = PV("uT")
+  V = cbind(1:9, bounce+1)
+  sel = V[,1] > V[,2]
+  V = V[sel,]
+  for (i in 1:nrow(V))
+  {
+	   C( uf , f[V[i,1]])
+      C( f[V[i,1]] , f[V[i,2]])
+      C( f[V[i,2]] , uf)
+      #C( uT , h[V[i,1]])
+      #C( h[V[i,1]] , h[V[i,2]])
+      #C( h[V[i,2]] , uT)
+   
+   }
+?>
+
+}
+
+// 0 1 2 3 4 5 6 7 8
+// 1 5 2 6 3 7 4 8 0
+
+CudaDeviceFunction void NonEquilibriumExtrapolationN()
+{
+    real_t u[2], d, eq_local[9], eq_neigh[9], usq;
+    const int adjY = -1; 
+    d = f0(0,adjY) + f1(0,adjY) + f2(0,adjY) + f3(0,adjY) + f4(0,adjY) + f5(0,adjY) + f6(0,adjY) + f7(0,adjY) + f8(0,adjY);
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    <?R  
+      eq_local = PV(paste("eq_local[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_local[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    u[0] = (( f8(0,adjY) -f7(0,adjY) -f6(0,adjY) +f5(0,adjY) -f3(0,adjY) +f1(0,adjY))/d);
+    u[1] = ((-f8(0,adjY) -f7(0,adjY) +f6(0,adjY) +f5(0,adjY) -f4(0,adjY) +f2(0,adjY))/d);
+       
+    <?R  
+      eq_neigh = PV(paste("eq_neigh[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_neigh[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    f[0] = eq_local[0] - eq_neigh[0] + f0(0,adjY);
+    f[1] = eq_local[1] - eq_neigh[1] + f1(0,adjY);
+    f[2] = eq_local[2] - eq_neigh[2] + f2(0,adjY);
+    f[3] = eq_local[3] - eq_neigh[3] + f3(0,adjY);
+    f[4] = eq_local[4] - eq_neigh[4] + f4(0,adjY);
+    f[5] = eq_local[5] - eq_neigh[5] + f5(0,adjY);
+    f[6] = eq_local[6] - eq_neigh[6] + f6(0,adjY);
+    f[7] = eq_local[7] - eq_neigh[7] + f7(0,adjY);
+    f[8] = eq_local[8] - eq_neigh[8] + f8(0,adjY);
+        
+    //Temperature
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    real_t E = TotEnergy(0,0);// localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY); 
+    
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      for (i in 1:9) {
+        C(eq_local[i], eq_local[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+
+    u[0] = (( f8(0,adjY) -f7(0,adjY) -f6(0,adjY) +f5(0,adjY) -f3(0,adjY) +f1(0,adjY))/d);
+    u[1] = ((-f8(0,adjY) -f7(0,adjY) +f6(0,adjY) +f5(0,adjY) -f4(0,adjY) +f2(0,adjY))/d);
+        
+    E = localCv*Temperature(0,adjY) + 0.5*(u[0]*u[0] + u[1]*u[1]); //TotEnergy(0,adjY); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:9) {
+        C(eq_neigh[i], eq_neigh[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+    
+    h[0] = eq_local[0] - eq_neigh[0] + h0(0,adjY);
+    h[1] = eq_local[1] - eq_neigh[1] + h1(0,adjY);
+    h[2] = eq_local[2] - eq_neigh[2] + h2(0,adjY);
+    h[3] = eq_local[3] - eq_neigh[3] + h3(0,adjY);
+    h[4] = eq_local[4] - eq_neigh[4] + h4(0,adjY);
+    h[5] = eq_local[5] - eq_neigh[5] + h5(0,adjY);
+    h[6] = eq_local[6] - eq_neigh[6] + h6(0,adjY);
+    h[7] = eq_local[7] - eq_neigh[7] + h7(0,adjY);
+    h[8] = eq_local[8] - eq_neigh[8] + h8(0,adjY);
+
+   
+
+}
+
+CudaDeviceFunction void NonEquilibriumExtrapolationE()
+{
+    real_t u[2], d, eq_local[9], eq_neigh[9], usq;
+    const int adjX = -1; 
+    d = f0(adjX,0) + f1(adjX,0) + f2(adjX,0) + f3(adjX,0) + f4(adjX,0) + f5(adjX,0) + f6(adjX,0) + f7(adjX,0) + f8(adjX,0);
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    <?R  
+      eq_local = PV(paste("eq_local[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_local[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+    
+    <?R  
+      eq_neigh = PV(paste("eq_neigh[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_neigh[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    f[0] = eq_local[0] - eq_neigh[0] + f0(adjX,0);
+    f[1] = eq_local[1] - eq_neigh[1] + f1(adjX,0);
+    f[2] = eq_local[2] - eq_neigh[2] + f2(adjX,0);
+    f[3] = eq_local[3] - eq_neigh[3] + f3(adjX,0);
+    f[4] = eq_local[4] - eq_neigh[4] + f4(adjX,0);
+    f[5] = eq_local[5] - eq_neigh[5] + f5(adjX,0);
+    f[6] = eq_local[6] - eq_neigh[6] + f6(adjX,0);
+    f[7] = eq_local[7] - eq_neigh[7] + f7(adjX,0);
+    f[8] = eq_local[8] - eq_neigh[8] + f8(adjX,0);
+    
+    
+    //Temperature
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    real_t E = localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);// TotEnergy(0,0); 
+    
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      for (i in 1:9) {
+        C(eq_local[i], eq_local[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+        
+    E = localCv*Temperature(adjX, 0) + 0.5*(u[0]*u[0] + u[1]*u[1]); //TotEnergy(adjX, 0); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:9) {
+        C(eq_neigh[i], eq_neigh[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+    
+    h[0] = eq_local[0] - eq_neigh[0] + h0(adjX,0);
+    h[1] = eq_local[1] - eq_neigh[1] + h1(adjX,0);
+    h[2] = eq_local[2] - eq_neigh[2] + h2(adjX,0);
+    h[3] = eq_local[3] - eq_neigh[3] + h3(adjX,0);
+    h[4] = eq_local[4] - eq_neigh[4] + h4(adjX,0);
+    h[5] = eq_local[5] - eq_neigh[5] + h5(adjX,0);
+    h[6] = eq_local[6] - eq_neigh[6] + h6(adjX,0);
+    h[7] = eq_local[7] - eq_neigh[7] + h7(adjX,0);
+    h[8] = eq_local[8] - eq_neigh[8] + h8(adjX,0);
+}
+
+CudaDeviceFunction void NonEquilibriumExtrapolationS()
+{
+    real_t u[2], d, eq_local[9], eq_neigh[9], usq;
+    const int adjY = 1; 
+    d = f0(0,adjY) + f1(0,adjY) + f2(0,adjY) + f3(0,adjY) + f4(0,adjY) + f5(0,adjY) + f6(0,adjY) + f7(0,adjY) + f8(0,adjY);
+    
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    <?R  
+      eq_local = PV(paste("eq_local[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_local[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    u[0] = (( f8(0,adjY) -f7(0,adjY) -f6(0,adjY) +f5(0,adjY) -f3(0,adjY) +f1(0,adjY))/d);
+    u[1] = ((-f8(0,adjY) -f7(0,adjY) +f6(0,adjY) +f5(0,adjY) -f4(0,adjY) +f2(0,adjY))/d);
+    
+    <?R  
+      eq_neigh = PV(paste("eq_neigh[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_neigh[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    f[0] = eq_local[0] - eq_neigh[0] + f0(0,adjY);
+    f[1] = eq_local[1] - eq_neigh[1] + f1(0,adjY);
+    f[2] = eq_local[2] - eq_neigh[2] + f2(0,adjY);
+    f[3] = eq_local[3] - eq_neigh[3] + f3(0,adjY);
+    f[4] = eq_local[4] - eq_neigh[4] + f4(0,adjY);
+    f[5] = eq_local[5] - eq_neigh[5] + f5(0,adjY);
+    f[6] = eq_local[6] - eq_neigh[6] + f6(0,adjY);
+    f[7] = eq_local[7] - eq_neigh[7] + f7(0,adjY);
+    f[8] = eq_local[8] - eq_neigh[8] + f8(0,adjY);
+    
+    //Temperature
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    real_t E = TotEnergy(0,0); //localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      for (i in 1:9) {
+        C(eq_local[i], eq_local[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+
+    u[0] = (( f8(0,adjY) -f7(0,adjY) -f6(0,adjY) +f5(0,adjY) -f3(0,adjY) +f1(0,adjY))/d);
+    u[1] = ((-f8(0,adjY) -f7(0,adjY) +f6(0,adjY) +f5(0,adjY) -f4(0,adjY) +f2(0,adjY))/d);
+        
+    E = localCv*Temperature(0,adjY) + 0.5*(u[0]*u[0] + u[1]*u[1]); //TotEnergy(0,adjY); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:9) {
+        C(eq_neigh[i], eq_neigh[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+    
+    h[0] = eq_local[0] - eq_neigh[0] + h0(0,adjY);
+    h[1] = eq_local[1] - eq_neigh[1] + h1(0,adjY);
+    h[2] = eq_local[2] - eq_neigh[2] + h2(0,adjY);
+    h[3] = eq_local[3] - eq_neigh[3] + h3(0,adjY);
+    h[4] = eq_local[4] - eq_neigh[4] + h4(0,adjY);
+    h[5] = eq_local[5] - eq_neigh[5] + h5(0,adjY);
+    h[6] = eq_local[6] - eq_neigh[6] + h6(0,adjY);
+    h[7] = eq_local[7] - eq_neigh[7] + h7(0,adjY);
+    h[8] = eq_local[8] - eq_neigh[8] + h8(0,adjY);
+
+}
+
+CudaDeviceFunction void NonEquilibriumExtrapolationW()
+{
+    real_t u[2], d, eq_local[9], eq_neigh[9], usq;
+    const int adjX = 1; 
+    d = f0(adjX,0) + f1(adjX,0) + f2(adjX,0) + f3(adjX,0) + f4(adjX,0) + f5(adjX,0) + f6(adjX,0) + f7(adjX,0) + f8(adjX,0);
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    <?R  
+      eq_local = PV(paste("eq_local[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_local[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+    
+    <?R  
+      eq_neigh = PV(paste("eq_neigh[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_neigh[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    f[0] = eq_local[0] - eq_neigh[0] + f0(adjX,0);
+    f[1] = eq_local[1] - eq_neigh[1] + f1(adjX,0);
+    f[2] = eq_local[2] - eq_neigh[2] + f2(adjX,0);
+    f[3] = eq_local[3] - eq_neigh[3] + f3(adjX,0);
+    f[4] = eq_local[4] - eq_neigh[4] + f4(adjX,0);
+    f[5] = eq_local[5] - eq_neigh[5] + f5(adjX,0);
+    f[6] = eq_local[6] - eq_neigh[6] + f6(adjX,0);
+    f[7] = eq_local[7] - eq_neigh[7] + f7(adjX,0);
+    f[8] = eq_local[8] - eq_neigh[8] + f8(adjX,0);
+    
+    
+    //Temperature
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    real_t E = localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);// TotEnergy(0,0); 
+    
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      for (i in 1:9) {
+        C(eq_local[i], eq_local[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+        
+    E = localCv*Temperature(adjX, 0) + 0.5*(u[0]*u[0] + u[1]*u[1]); //TotEnergy(adjX, 0); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:9) {
+        C(eq_neigh[i], eq_neigh[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+    
+    h[0] = eq_local[0] - eq_neigh[0] + h0(adjX,0);
+    h[1] = eq_local[1] - eq_neigh[1] + h1(adjX,0);
+    h[2] = eq_local[2] - eq_neigh[2] + h2(adjX,0);
+    h[3] = eq_local[3] - eq_neigh[3] + h3(adjX,0);
+    h[4] = eq_local[4] - eq_neigh[4] + h4(adjX,0);
+    h[5] = eq_local[5] - eq_neigh[5] + h5(adjX,0);
+    h[6] = eq_local[6] - eq_neigh[6] + h6(adjX,0);
+    h[7] = eq_local[7] - eq_neigh[7] + h7(adjX,0);
+    h[8] = eq_local[8] - eq_neigh[8] + h8(adjX,0);
+}
+
+CudaDeviceFunction void Pressure_NonEq_E()
+{
+    real_t u[2], d, eq_local[9], eq_neigh[9], usq;
+    const int adjX = -1; 
+    
+    //Fluid
+    real_t ru, ux0;
+	d = getRho();
+	ux0 = -1. + ( f[0] + f[2] + f[4] + 2.*(f[1] + f[5] + f[8]) ) / d;
+	ru = d * ux0;
+
+	f[3] = f[1] - (2./3.) * ru;
+	f[7] = f[5] - (1./6.) * ru + (1./2.)*(f[2] - f[4]);
+	f[6] = f[8] - (1./6.) * ru + (1./2.)*(f[4] - f[2]);    
+
+    //Temperature
+    d = f0(adjX,0) + f1(adjX,0) + f2(adjX,0) + f3(adjX,0) + f4(adjX,0) + f5(adjX,0) + f6(adjX,0) + f7(adjX,0) + f8(adjX,0);
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    <?R  
+      eq_local = PV(paste("eq_local[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_local[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+    
+    <?R  
+      eq_neigh = PV(paste("eq_neigh[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ))
+
+      for (i in 1:9) {
+         C( eq_neigh[i], d * ((u %*% t(U) * (1/c_squ))[i] + ((u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i]+usq*(-1))*0.5 + 1) * tn[i,i])
+      }
+    ?>
+    
+    // pu* = pu + rG
+    u[0] = WallVelocityX;
+    u[1] = WallVelocityY;
+    
+    real_t E = localCv*InitTemperature + 0.5*(WallVelocityX*WallVelocityX + WallVelocityY*WallVelocityY);// TotEnergy(0,0); 
+    
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      for (i in 1:9) {
+        C(eq_local[i], eq_local[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+
+    u[0] = (( f8(adjX,0) -f7(adjX,0) -f6(adjX,0) +f5(adjX,0) -f3(adjX,0) +f1(adjX,0))/d);
+    u[1] = ((-f8(adjX,0) -f7(adjX,0) +f6(adjX,0) +f5(adjX,0) -f4(adjX,0) +f2(adjX,0))/d);
+        
+    E = localCv*Temperature(adjX, 0) + 0.5*(u[0]*u[0] + u[1]*u[1]); //TotEnergy(adjX, 0); 
+    
+    <?R
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:9) {
+        C(eq_neigh[i], eq_neigh[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+    ?>
+    
+    h[0] = eq_local[0] - eq_neigh[0] + h0(adjX,0);
+    h[1] = eq_local[1] - eq_neigh[1] + h1(adjX,0);
+    h[2] = eq_local[2] - eq_neigh[2] + h2(adjX,0);
+    h[3] = eq_local[3] - eq_neigh[3] + h3(adjX,0);
+    h[4] = eq_local[4] - eq_neigh[4] + h4(adjX,0);
+    h[5] = eq_local[5] - eq_neigh[5] + h5(adjX,0);
+    h[6] = eq_local[6] - eq_neigh[6] + h6(adjX,0);
+    h[7] = eq_local[7] - eq_neigh[7] + h7(adjX,0);
+    h[8] = eq_local[8] - eq_neigh[8] + h8(adjX,0);
+}
+
+CudaDeviceFunction void OuterRing(){
+
+   real_t u[2] = {0.0,0.0}; //{InitVelocityX,InitVelocityY};
+	real_t d = 1.0;
+	real_t usq;
+	
+	SetEquilibrum(d,u);
+	
+	real_t theta = atan((Y-MidY)/(X-MidX));
+	if(X<0){	theta = PI + theta;}
+	
+	Temperature = cos(2.0*theta);
+	TotEnergy = localCv*Temperature + 0.5*(u[0]*u[0] + u[1]*u[1]);
+
+	<?R
+	TotEnergy = PV("TotEnergy")
+	C(usq, sum(u*u)*(1/c_squ)) 
+	
+	for (i in 1:9) {
+           C(h[i], f[i]*TotEnergy + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+   ?>
+}
+
+CudaDeviceFunction real_t CalcSolid(){
+	real_t coverage = 0, ret = 0;
+	
+	for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1) {
+                if ((p.dist - p.rad) < - 1){
+                        coverage = 1.0;
+                } else{
+                        coverage = (p.rad -  0.042/p.rad + 0.5 - p.dist);
+                }
+
+                if (coverage > 1.0){ coverage =  1.0;}
+                if (coverage < 0.0){ coverage =  0.0;}
+
+                ret += coverage;
+		            
+        }
+
+        if (ret > 1.0){ ret =  1.0;}
+        if (ret < 0.0){ ret = 0.0;}
+	
+	return ret;
+}
+
+CudaDeviceFunction void CollisionBGK() {
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+       
+    real_t usq, uf;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ)) 
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+      ?>
+      
+      real_t omegaF_mod = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+      <?R
+      omegaF_mod = PV(c("omegaF_mod"))     
+      for (i in 1:9) {
+         C(f[i], f[i] + omegaF_mod*(feq[i]-f[i]) + (1.0-0.5*omegaF_mod)*F[i])
+      }
+    ?>
+    
+    // Temperature Population    
+    real_t E = TotEnergy(0,0); //getTotEnergy(); 
+     
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E") 
+      localOmegaH = PV("localOmegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+          
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+
+      for (i in 1:9) {
+           C(h[i], h[i] + localOmegaH*(heq[i] -h[i]) + (1.0-0.5*localOmegaH)*q[i] + (localOmegaH-omegaF_mod)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
+      }         
+    
+ 
+    ?>
+}
+
+
+CudaDeviceFunction void CollisionBGK_CalcF() {
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    real_t uP[2], omegaS[9], feqP[9], coverage=0, numP=0;
+	uP[0] = 0;
+	uP[1] = 0;   
+ //	sol=0; 
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+   
+	if (sol > 0){
+		for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1) {
+			
+			numP += 1.0;
+			/*
+			if ((p.dist - p.rad) < - 1){
+				coverage = 1.0;
+			} else{
+				coverage = (p.rad -  0.042/p.rad + 0.5 - p.dist);
+			}
+
+			if (coverage > 1.0){ coverage =  1.0;}
+			if (coverage < 0.0){ coverage =  0.0;}
+
+			sol += coverage;
+			*/
+			uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+			uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+		}
+
+//        if (sol > 1.0){ sol =  1.0;}
+//        if (sol < 0.0){ sol = 0.0;}
+	}
+	CudaSyncThreads();
+
+   
+    real_t usq, uPsq;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      feqP = PV(paste("feqP[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep="")) 
+      omegaS = PV(paste("omegaS[",1:9-1,"]",sep=""))
+      sol = PV("sol")
+      uP = PV(paste("uP[",1:2-1,"]",sep=""))
+      uPsq = PV("uPsq")
+      C(usq, sum(u*u)*(1/c_squ)) 
+      C(uPsq, sum(uP*uP)*(1/c_squ)) 
+            
+
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+      ?>
+      
+      localOmegaF = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+      <?R
+      localOmegaF = PV(c("localOmegaF"))    
+
+	for (i in 1:9){
+                C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+        }
+        for (i in 1:9){
+                C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1])
+        }
+
+        for (i in 1:9){
+                C(f[i], f[i] + (1.0-sol)*localOmegaF*(feq[i] - f[i]) + sol*omegaS[i] + (1.0-0.5*localOmegaF)*F[i])
+        }
+     ?>
+	if (sol > 0){	
+		for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+			vector_t force;
+			force.x=0.0; force.y=0.0; force.z=0.0;
+
+			force.x = -sol * ( <?R C(t(U[,1] %*% omegaS)) ?> );
+			force.y = -sol * ( <?R C(t(U[,2] %*% omegaS)) ?> );
+			force.z = 0.0;
+
+			p.applyForce(force);
+		}
+	}
+    
+
+    // Temperature Population    
+    real_t E = TotEnergy(0,0); //getTotEnergy(); 
+     
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      localOmegaH = PV("localOmegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+          
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+
+      for (i in 1:9) {
+           C(h[i], h[i] + localOmegaH*(heq[i] -h[i]) + (1.0-0.5*localOmegaH)*q[i] + (localOmegaH-localOmegaF)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
+      }         
+    
+ 
+    ?>
+}
+
+CudaDeviceFunction void CollisionBGK_KH() {
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+       
+    real_t usq, uf;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ)) 
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+      ?>
+      
+      real_t omegaF_mod = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+      <?R
+      omegaF_mod = PV(c("omegaF_mod"))     
+      for (i in 1:9) {
+         C(f[i], f[i] + omegaF_mod*(feq[i]-f[i]) + (1.0-0.5*omegaF_mod)*F[i])
+      }
+    ?>
+    
+    // Temperature Population    
+    real_t E = TotEnergy(0,0); //getTotEnergy();
+    
+    vector_t grad_pC = calcGradInvRhoCp();
+    real_t heatFluxX, heatFluxY;
+    real_t TempLoc = getT();
+         
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      omegaH = PV("omegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+      RhoCp = PV("rhoCp")
+      TempLoc = PV("TempLoc")
+      
+      heatflux = PV(c("heatFluxX", "heatFluxY"))
+      gradpC = PV(c("grad_pC.x","grad_pC.y"))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+          
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+      
+      C(heatflux, (h-heq)%*%U)
+
+      for (i in 1:9) {
+           C(h[i], h[i] + omegaH*(heq[i] -h[i]) + (1.0-0.5*omegaH)*q[i] + (omegaH-omegaF_mod)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]) + tn[i,i]*RhoCp*(gradpC[1]*((1.0-0.5*omegaH)*heatflux[1] - u[1]*TempLoc) + gradpC[2]*((1.0-0.5*omegaH)*heatflux[2] - u[2]*TempLoc)))
+      }         
+    ?>
+
+}
+
+CudaDeviceFunction void CollisionBGK_Tint() {     
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9], E, P[3];
+    real_t Tint; 
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+       
+    real_t usq, uf;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ)) 
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+            
+      ?>
+      
+      		// Stress/strain Tensor
+	   P[0] = 0.0;P[1] = 0.0;P[2] = 0.0;
+	   for (int i=0; i< 9; i++){
+		   real_t tmp1 = f[i] - feq[i];
+		   P[0] += tmp1*d2q9_ex[i]*d2q9_ex[i];
+		   P[1] += tmp1*d2q9_ex[i]*d2q9_ey[i];
+		   P[2] += tmp1*d2q9_ey[i]*d2q9_ey[i];    }
+      
+      real_t omegaF_mod = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+      <?R
+      omegaF_mod = PV(c("omegaF_mod"))     
+      for (i in 1:9) {
+         C(f[i], f[i] + omegaF_mod*(feq[i]-f[i]) + (1.0-0.5*omegaF_mod)*F[i])
+      }
+    ?>
+    
+    // Temperature Population
+    
+    real_t nrmX, nrmY, length;
+    real_t direction = 1.0;
+    <?R 
+      nrm = PV(c("nrmX","nrmY"))
+      mediaNum = PV("mediaNum(",U[,1],",",U[,2],")")
+      C(nrm, t(U) %*% mediaNum)
+	 ?>
+         length = sqrt(nrmX*nrmX + nrmY*nrmY + 1e-12);	 
+	 nrmX = nrmX/length;
+	 nrmY = nrmY/length;
+	 	 
+	 // JM Reorient the normal to account for which side of interface we are on.
+	 // Currently should work for straight boundaries only.
+	 // curved boundaries may need mediaNum(1,1) added to the check.
+    //if(mediaNum(0,0) == max(max(mediaNum(0,1),mediaNum(1,0)),mediaNum(1,1))){
+    if(8*mediaNum(0,0) > (mediaNum(1,0)+mediaNum(-1,0)+mediaNum(0,1)+mediaNum(0,-1)+mediaNum(1,1)+mediaNum(1,-1)+mediaNum(-1,-1)+mediaNum(-1,1))){
+      nrmX = -nrmX;
+      nrmY = -nrmY;
+      direction = -1.0;
+    } 
+	 	 
+    real_t condMax, condMin, Tmax, Tmin, Tright, Tleft, condSignX, condSignY, condU, condR, condD, condL;
+    int missing1, missing2, missing3;
+    
+    int iMax = 0;
+    real_t nMax = 0;
+    real_t dot;
+    for (int i =0; i<9;i++) {
+       dot = (d2q9_ex[i]*nrmX + d2q9_ey[i]*nrmY)/sqrt((d2q9_ex[i]*d2q9_ex[i]+d2q9_ey[i]*d2q9_ey[i])*(nrmX*nrmX + nrmY*nrmY)+1e-12);
+       
+       if (dot > nMax)
+       {
+         iMax = i;
+         nMax = dot;
+       }
+     }
+          
+     switch (iMax){
+     case 0:
+     case 1:
+         condMax = Conductivity(1,0);
+         condMin = Conductivity(-1,0);
+         Tmax = Temperature(1,0);
+         Tmin = Temperature(-1,0);
+         
+         Tright = Temperature(0,-1);
+         Tleft = Temperature(0,1);
+         
+         missing1=3; missing2=6; missing3=7;
+         break;
+     case 2:
+         condMax = Conductivity(0,1);
+         condMin = Conductivity(0,-1);
+         Tmax = Temperature(0,1);
+         Tmin = Temperature(0,-1);
+         
+         Tright = Temperature(1,0);
+         Tleft = Temperature(-1,0);
+         
+         missing1=4; missing2=7; missing3=8;
+         break;
+     case 3:
+         condMax = Conductivity(-1,0);
+         condMin = Conductivity(1,0);
+         Tmax = Temperature(-1,0);
+         Tmin = Temperature(1,0);
+         
+         Tright = Temperature(0,1);
+         Tleft = Temperature(0,-1);  
+                
+         missing1=1; missing2=5; missing3=8;   
+         break;
+     case 4:
+         condMax = Conductivity(0,-1);
+         condMin = Conductivity(0,1);
+         Tmax = Temperature(0,-1);
+         Tmin = Temperature(0,1);
+         
+         Tright = Temperature(-1,0);
+         Tleft = Temperature(1,0);
+         
+         missing1=2; missing2=5; missing3=6;
+         break;
+     case 5:
+         condMax = Conductivity(1,1);
+         condMin = Conductivity(-1,-1);
+         Tmax = Temperature(1,1);
+         Tmin = Temperature(-1,-1);
+         
+         Tright = Temperature(1,-1);
+         Tleft = Temperature(-1,1);
+         
+         missing1=7; missing2=4; missing3=3;
+         break;
+     case 6:
+         condMax = Conductivity(-1,1);
+         condMin = Conductivity(1,-1);
+         Tmax = Temperature(-1,1);
+         Tmin = Temperature(1,-1);
+         
+         Tright = Temperature(1,1);
+         Tleft = Temperature(-1,-1);
+         
+         missing1=8; missing2=4; missing3=1;
+         break;
+     case 7:
+         condMax = Conductivity(-1,-1);
+         condMin = Conductivity(1,1);
+         Tmax = Temperature(-1,-1);
+         Tmin = Temperature(1,1);   
+         
+         Tright = Temperature(-1,1);
+         Tleft = Temperature(1,-1);
+         
+         missing1=5; missing2=2; missing3=1; 
+         break;
+     case 8:
+         condMax = Conductivity(1,-1);
+         condMin = Conductivity(-1,1);
+         Tmax = Temperature(1,-1);
+         Tmin = Temperature(-1,1);
+         
+         Tright = Temperature(-1,-1);
+         Tleft = Temperature(1,1);
+         
+         missing1=6; missing2=3; missing3=2;
+         break;
+    }
+    int missingList[3] = {missing1,missing2,missing3};   
+      
+    condU = Conductivity(0,1);
+    condD = Conductivity(0,-1);
+    condR = Conductivity(1,0);
+    condL = Conductivity(-1,0);
+    
+    if (condR > condL){
+      condSignX = -1.0;
+    } else if (condR < condL){
+      condSignX = 1.0;
+    } else {
+      condSignX = 0.0;
+    }
+    
+    if (condU > condD){
+      condSignY = -1.0;
+    } else if (condU < condD){
+      condSignY = 1.0;
+    } else {
+      condSignY = 0.0;
+    }
+           
+    Tint = (condMax*Tmax + condMin*Temperature(0,0))/(condMax + condMin); 
+    //Tint = (1.5*condMax*Tmax + 0.5*condMin*Tmin)/(1.5*condMax + 0.5*condMin);
+    
+    Temperature  = (2./3.)*Tint + (1./3.)*Tmin;   // 0.25;
+    E = localCv*Temperature + 0.5*(u[0]*u[0] + u[1]*u[1]);
+    TotEnergy = E; 
+        
+    real_t tGradX, tGradY,tGradN, tGradP;
+    
+    //tGradN = Tint - 0.5*(Temperature + Tmin);
+    tGradN = 2.0*(Tint - Temperature);
+    tGradP = 0.5*(Tright - Tleft);
+    
+    tGradX = nrmX*tGradN + nrmY*tGradP;
+    tGradY = nrmY*tGradN - nrmX*tGradP;
+    
+    if ((iMax == 5)||(iMax == 7)||(iMax == 6)||(iMax == 8)){
+      tGradX = tGradX/sqrt(2);
+      tGradY = tGradY/sqrt(2);
+    }
+        
+      <?R
+      for (i in 1:9) {
+        C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+      ?>
+      
+      for (int i=0; i<3; i++){
+         h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(localCv*(condSignX*tGradX + condSignY*tGradY)/omegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) + 6.0*(localCv*(condSignX*tGradX*(u[0] + u[1]) + condSignY*tGradY*(u[0] + u[1])))/omegaH + 18.0*(2.0/3.0 + 0.5*localCv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
+      }
+         
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      omegaH = PV("omegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+      
+      RhoCp = PV("rhoCp")
+      Tint = PV("Tint")
+           
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+
+      for (i in 1:9) {
+           C(h[i], h[i] + omegaH*(heq[i] -h[i]) + (1.0-0.5*omegaH)*q[i] + (omegaH-omegaF_mod)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
+      }
+    ?>
+}
+
+CudaDeviceFunction void CollisionBGK_h() {
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + GravitationY) );
+       
+    real_t usq, uf;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + GravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep=""))
+      
+      C(usq, sum(u*u)*(1/c_squ)) 
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+      ?>
+      
+      real_t omegaF_mod = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+                 
+    // Temperature Population    
+    real_t E = TotEnergy(0,0); //getTotEnergy(); 
+     
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      omegaH = PV("omegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+          
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+ 
+      for (i in 1:9) {
+           C(h[i], h[i] + omegaH*(heq[i] -h[i]) + (1.0-0.5*omegaH)*q[i] + (omegaH-omegaF_mod)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
+      }         
+    
+ 
+    ?>
+}
+
+CudaDeviceFunction void CollisionTRT() {
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], qplus[9], qminus[9], delf[9], delfplus[9], delfminus[9], plus[9], minus[9], eqplus[9], eqminus[9], Fplus[9], Fminus[9];
+    
+    
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+       
+    real_t usq, uf;
+    <?R
+          
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      delfplus = PV(paste("delfplus[",1:9-1,"]",sep=""))
+      delfminus = PV(paste("delfminus[",1:9-1,"]",sep=""))
+      plus = PV(paste("plus[",1:9-1,"]",sep=""))
+      minus = PV(paste("minus[",1:9-1,"]",sep=""))
+      eqplus = PV(paste("eqplus[",1:9-1,"]",sep=""))
+      eqminus = PV(paste("eqminus[",1:9-1,"]",sep="")) 
+      Fplus = PV(paste("Fplus[",1:9-1,"]",sep=""))
+      Fminus = PV(paste("Fminus[",1:9-1,"]",sep=""))     
+
+      
+      C(usq, sum(u*u)*(1/c_squ)) 
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(plus[i], 0.5*(f[i] + f[bounce[i]+1]))
+         C(minus[i], 0.5*(f[i] - f[bounce[i]+1]))
+      }
+      
+      for (i in 1:9){
+         C(eqplus[i], 0.5*(feq[i] + feq[bounce[i]+1]))
+         C(eqminus[i], 0.5*(feq[i] - feq[bounce[i]+1]))
+      }
+      
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+         C(delfplus[i], plus[i] - eqplus[i])
+         C(delfminus[i], minus[i] - eqminus[i])
+      }
+      
+      for (i in 1:9){
+         C(Fplus[i], 0.5*(F[i] + F[bounce[i]+1]))
+         C(Fminus[i], 0.5*(F[i] - F[bounce[i]+1]))
+      }
+      
+      ?>
+      
+      real_t omegaFplus_mod = 1./((1.0/omegaFplus - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+      <?R
+      omegaFplus_mod = PV(c("omegaFplus_mod")) 
+      omegaFminus = PV(c("omegaFminus"))    
+      for (i in 1:9) {
+         C(f[i], f[i] + omegaFplus_mod*(eqplus[i]-plus[i]) + omegaFminus*(eqminus[i]-minus[i]) + (1.0-0.5*omegaFplus_mod)*Fplus[i] + (1.0-0.5*omegaFminus)*Fminus[i])
+         #C(f[i], f[i] + omegaFplus_mod*(eqplus[i]-plus[i]) + omegaFminus*(eqminus[i]-minus[i]) + (1.0-0.5*omegaFplus_mod)*F[i])
+      }
+    ?>
+    
+    // Temperature Population    
+    real_t E = TotEnergy(0,0); //getTotEnergy(); 
+     
+    <?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      omegaHplus = PV("omegaHplus")
+      omegaHminus = PV("omegaHminus")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+      
+      qplus = PV(paste("qplus[",1:9-1,"]",sep=""))
+      qminus = PV(paste("qminus[",1:9-1,"]",sep=""))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+          
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+
+      for (i in 1:9){
+         C(plus[i], 0.5*(h[i] + h[bounce[i]+1]))
+         C(minus[i], 0.5*(h[i] - h[bounce[i]+1]))
+      }
+      
+      for (i in 1:9){
+         C(eqplus[i], 0.5*(heq[i] + heq[bounce[i]+1]))
+         C(eqminus[i], 0.5*(heq[i] - heq[bounce[i]+1]))
+      }
+      
+      for (i in 1:9){
+         C(qplus[i], 0.5*(q[i] + q[bounce[i]+1]))
+         C(qminus[i], 0.5*(q[i] - q[bounce[i]+1]))
+      }
+      
+      for (i in 1:9) {
+           C(h[i], h[i] + omegaHplus*(eqplus[i]-plus[i]) + omegaHminus*(eqminus[i]-minus[i]) + (1.0-0.5*omegaHplus)*qplus[i] + (1.0-0.5*omegaHminus)*qminus[i] + (omegaHplus-omegaFplus_mod)*((u %*% t(U))[i] - 0.5*usq)*(delfplus[i] + 0.5*Fplus[i]) + (omegaHminus-omegaFminus)*((u %*% t(U))[i] - 0.5*usq)*(delfminus[i] + 0.5*Fminus[i]))
+      }         
+    ?>
+}
+
+CudaDeviceFunction float2 Color() {
+        float2 ret;
+//        vector_t u = getU();
+//        ret.x = sqrt(u.x*u.x + u.y*u.y);
+
+	ret.x = (<?R C(sum(fh)) ?>);
+	ret.x = ret.x/111;
+//	ret.x = wb;
+	if (NodeType == NODE_Solid) ret.y = 0; else ret.y= 1;
+        return ret;
+}
+

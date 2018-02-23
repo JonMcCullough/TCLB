@@ -8,7 +8,7 @@
          <Solid><Box/></Solid>
          
          <BGK mask="ALL" name="Media1">
-             <Sphere  dy="1" dx="1" nx="163" ny="163" />
+             <Sphere  dx="2" dy="2" nx="161" ny="161" />
          </BGK> 
          
          <Interface name="Intface">
