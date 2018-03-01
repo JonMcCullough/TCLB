@@ -76,7 +76,7 @@ CudaDeviceFunction real_t getTotEnergy(){
 
 CudaDeviceFunction real_t getTE2(){
    vector_t u = getU();
-	return  localCv*Temperature(0,0) + 0.5*(u.x*u.x + u.y+u.y);
+	return  localCv*Temperature(0,0) + 0.5*(u.x*u.x + u.y*u.y);
 }
 
 CudaDeviceFunction real_t getT(){
@@ -158,6 +158,8 @@ CudaDeviceFunction void Init() {
 	
 	sol = 0;
         sol = CalcSolid();
+	
+
         localCv = sol*SolidCv + (1.0 - sol)*FluidCv;
         localConductivity = sol*SolidConductivity + (1.0 - sol)*FluidConductivity;
         localRho = sol*SolidRho + (1.0 - sol)*FluidRho;
@@ -220,20 +222,33 @@ CudaDeviceFunction void Init() {
 CudaDeviceFunction void Run() {
     sol = 0;
     sol = CalcSolid();
-
+/*
     localCv = sol*SolidCv + (1.0 - sol)*FluidCv;
     localConductivity = sol*SolidConductivity + (1.0 - sol)*FluidConductivity;
-    localRho = sol*SolidRho + (1.0 - sol)*FluidRho;
- 
+    localRho = sol*SolidRho + (1.0 - sol)*FluidRho; 
+*/
+
+    if(sol>0.5){
+	localCv = SolidCv;
+	localConductivity = SolidConductivity;
+	localRho = SolidRho;
+    }else{	
+	localCv = FluidCv;
+	localConductivity = FluidConductivity;
+	localRho = FluidRho;
+    }
+    
     Conductivity = localConductivity; 
     rhoCp = localRho * localCv;
-    localOmegaH = 1.0/(3.0*localConductivity/rhoCp + 0.5);
-   
+    localOmegaH = 1.0/(3.0*localConductivity/rhoCp + 0.5);   
 
     TotEnergy = getTotEnergy();
     Temperature = getT();
     
     mediaNum = MediaNumber;
+    if (sol > 0.5){
+	mediaNum = 2;
+    }
    
     switch (NodeType & NODE_BOUNDARY) {
 	case NODE_Solid:
@@ -285,7 +300,8 @@ CudaDeviceFunction void Run() {
       CollisionBGK_Tint();
     } else if ((NodeType & NODE_BGK))
     {
-		CollisionBGK_CalcF();
+		CollisionBGK_CHT_CalcF();
+		//CollisionBGK_CalcF();
 		//CollisionTRT();
     } 
 }
@@ -967,6 +983,330 @@ CudaDeviceFunction void CollisionBGK_CalcF() {
     
  
     ?>
+}
+
+
+CudaDeviceFunction void CollisionBGK_CHT_CalcF(){
+    real_t u[2], d, feq[9], heq[9], F[9], q[9], delf[9];
+    real_t uP[2], omegaS[9], feqP[9], coverage=0, numP=0;
+	uP[0] = 0;
+	uP[1] = 0;   
+
+
+real_t nrmX, nrmY;    
+<?R 
+      nrm = PV(c("nrmX","nrmY"))
+      mediaNum = PV("mediaNum(",U[,1],",",U[,2],")")
+      C(nrm, t(U) %*% mediaNum)
+?>
+	real_t length = sqrt(nrmX*nrmX + nrmY*nrmY + 1e-12);	 	 
+	 nrmX = nrmX/length;
+	 nrmY = nrmY/length;
+	 	 
+	 // JM Reorient the normal to account for which side of interface we are on.
+
+    if(8*mediaNum(0,0) > (mediaNum(1,0)+mediaNum(-1,0)+mediaNum(0,1)+mediaNum(0,-1)+mediaNum(1,1)+mediaNum(1,-1)+mediaNum(-1,-1)+mediaNum(-1,1))){
+      nrmX = -nrmX;
+      nrmY = -nrmY;
+     
+    } 
+ 
+    // Assume Gravity in y-direction
+    real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0) - 0.5); 
+    
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = (( f[8]-f[7]-f[6]+f[5]-f[3]+f[1] )/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((-f[8]-f[7]+f[6]+f[5]-f[4]+f[2] )/d + 0.5*(AccelY + localGravitationY) );
+   
+	if (sol > 0){
+		for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1) {	
+			numP += 1.0;
+
+			uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+			uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+		}
+	}
+	CudaSyncThreads();
+   
+    real_t usq, uPsq;
+<?R
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + localGravitationY)"))
+      F = PV(paste("F[",1:9-1,"]",sep=""))
+      feq = PV(paste("feq[",1:9-1,"]",sep=""))
+      feqP = PV(paste("feqP[",1:9-1,"]",sep=""))
+      delf = PV(paste("delf[",1:9-1,"]",sep="")) 
+      omegaS = PV(paste("omegaS[",1:9-1,"]",sep=""))
+      sol = PV("sol")
+      uP = PV(paste("uP[",1:2-1,"]",sep=""))
+      uPsq = PV("uPsq")
+      C(usq, sum(u*u)*(1/c_squ)) 
+      C(uPsq, sum(uP*uP)*(1/c_squ)) 
+            
+      for (i in 1:9){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+      
+	   for (i in 1:9) {
+         C(F[i], ((a %*% t(U))[i] + 3.0*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*3.0*d)
+      }
+       
+      for (i in 1:9){
+         C(delf[i], f[i] - feq[i])
+      }
+?>
+
+	// Stress/strain Tensor
+	real_t P[3];
+	if (length > 0.1){
+	   P[0] = 0.0;P[1] = 0.0;P[2] = 0.0;
+	   for (int i=0; i< 9; i++){
+		   real_t tmp1 = f[i] - feq[i];
+		   P[0] += tmp1*d2q9_ex[i]*d2q9_ex[i];
+		   P[1] += tmp1*d2q9_ex[i]*d2q9_ey[i];
+		   P[2] += tmp1*d2q9_ey[i]*d2q9_ey[i];    }
+	}
+
+      localOmegaF = 1./((1.0/omegaF - 0.5)*exp(-ViscCoeff*getT()) + 0.5);
+      
+<?R
+      localOmegaF = PV(c("localOmegaF"))    
+
+	for (i in 1:9){
+                C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+        }
+        for (i in 1:9){
+                C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1])
+        }
+
+        for (i in 1:9){
+                C(f[i], f[i] + (1.0-sol)*localOmegaF*(feq[i] - f[i]) + sol*omegaS[i] + (1.0-0.5*localOmegaF)*F[i])
+        }
+?>
+	if (sol > 0){	
+		for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+			vector_t force;
+			force.x=0.0; force.y=0.0; force.z=0.0;
+
+			force.x = -sol * ( <?R C(t(U[,1] %*% omegaS)) ?> );
+			force.y = -sol * ( <?R C(t(U[,2] %*% omegaS)) ?> );
+			force.z = 0.0;
+
+			p.applyForce(force);
+		}
+	}
+    
+
+    // Temperature Population    
+    
+    real_t condMax, condMin, Tmax, Tmin, Tright, Tleft, condSignX, condSignY, condU, condR, condD, condL, Tint, E;
+    real_t tGradX, tGradY,tGradN, tGradP;
+    int missing1, missing2, missing3, missingList[6];
+    int missing4, missing5, missing6;
+
+    E = TotEnergy(0,0);
+
+    int iMax;
+    real_t nMax;
+    real_t dot;
+   	 
+
+if (length > 0.1){    
+    iMax = 0;
+    nMax = 0;
+
+    for (int i =0; i<9;i++) {
+       dot = (d2q9_ex[i]*nrmX + d2q9_ey[i]*nrmY)/sqrt((d2q9_ex[i]*d2q9_ex[i]+d2q9_ey[i]*d2q9_ey[i])*(nrmX*nrmX + nrmY*nrmY)+1e-12);
+       
+       if (dot > nMax)
+       {
+         iMax = i;
+         nMax = dot;
+       }
+     }
+
+     switch (iMax){
+     case 0:
+     case 1:
+         condMax = Conductivity(1,0);
+         condMin = Conductivity(-1,0);
+         Tmax = Temperature(1,0);
+         Tmin = Temperature(-1,0);
+         
+         Tright = Temperature(0,-1);
+         Tleft = Temperature(0,1);
+         
+         missing1=3; missing2=6; missing3=7;
+         missing4=1; missing5=5; missing6=8;
+         break;
+     case 2:
+         condMax = Conductivity(0,1);
+         condMin = Conductivity(0,-1);
+         Tmax = Temperature(0,1);
+         Tmin = Temperature(0,-1);
+         
+         Tright = Temperature(1,0);
+         Tleft = Temperature(-1,0);
+         
+         missing1=4; missing2=7; missing3=8;
+         missing4=2; missing5=5; missing6=6;
+         break;
+     case 3:
+         condMax = Conductivity(-1,0);
+         condMin = Conductivity(1,0);
+         Tmax = Temperature(-1,0);
+         Tmin = Temperature(1,0);
+         
+         Tright = Temperature(0,1);
+         Tleft = Temperature(0,-1);  
+                
+         missing1=1; missing2=5; missing3=8;   
+         missing4=3; missing5=6; missing6=7;
+         break;
+     case 4:
+         condMax = Conductivity(0,-1);
+         condMin = Conductivity(0,1);
+         Tmax = Temperature(0,-1);
+         Tmin = Temperature(0,1);
+         
+         Tright = Temperature(-1,0);
+         Tleft = Temperature(1,0);
+         
+         missing1=2; missing2=5; missing3=6;
+         missing4=4; missing5=7; missing6=8;
+         break;
+     case 5:
+         condMax = Conductivity(1,1);
+         condMin = Conductivity(-1,-1);
+         Tmax = Temperature(1,1);
+         Tmin = Temperature(-1,-1);
+         
+         Tright = Temperature(1,-1);
+         Tleft = Temperature(-1,1);
+         
+         missing1=7; missing2=4; missing3=3;
+         missing4=2; missing5=1; missing6=5;
+         break;
+     case 6:
+         condMax = Conductivity(-1,1);
+         condMin = Conductivity(1,-1);
+         Tmax = Temperature(-1,1);
+         Tmin = Temperature(1,-1);
+         
+         Tright = Temperature(1,1);
+         Tleft = Temperature(-1,-1);
+         
+         missing1=8; missing2=4; missing3=1;
+         missing4=2; missing5=3; missing6=6;
+         break;
+     case 7:
+         condMax = Conductivity(-1,-1);
+         condMin = Conductivity(1,1);
+         Tmax = Temperature(-1,-1);
+         Tmin = Temperature(1,1);   
+         
+         Tright = Temperature(-1,1);
+         Tleft = Temperature(1,-1);
+         
+         missing1=5; missing2=2; missing3=1; 
+         missing4=3; missing5=4; missing6=7;
+         break;
+     case 8:
+         condMax = Conductivity(1,-1);
+         condMin = Conductivity(-1,1);
+         Tmax = Temperature(1,-1);
+         Tmin = Temperature(-1,1);
+         
+         Tright = Temperature(-1,-1);
+         Tleft = Temperature(1,1);
+         
+         missing1=6; missing2=3; missing3=2;
+         missing4=1; missing5=4; missing6=8;
+         break;
+    }
+    missingList[0] = missing1; missingList[1] = missing2; missingList[2] = missing3;   
+    missingList[3] = missing4; missingList[4] = missing5; missingList[5] = missing6;
+  
+    condU = Conductivity(0,1);
+    condD = Conductivity(0,-1);
+    condR = Conductivity(1,0);
+    condL = Conductivity(-1,0);
+    
+    if (condR > condL){
+      condSignX = -1.0;
+    } else if (condR < condL){
+      condSignX = 1.0;
+    } else {
+      condSignX = 0.0;
+    }
+    
+    if (condU > condD){
+      condSignY = -1.0;
+    } else if (condU < condD){
+      condSignY = 1.0;
+    } else {
+      condSignY = 0.0;
+    }
+           
+    Tint = (condMax*Tmax + condMin*Temperature(0,0))/(condMax + condMin); 
+    //Tint = (sol*condMax*Tmax + (1.-sol)*condMin*Temperature(0,0))/(sol*condMax + (1.-sol)*condMin);
+    
+    Temperature  = (2./3.)*Tint + (1./3.)*Tmin; 
+    //Temperature  = (1./(1.+sol))*Tint + (sol/(1.+sol))*Tmin;
+
+    if (numP > 1){
+	Temperature = 0.25 * (Tmax + Tmin + Tright + Tleft);
+	Tint = Temperature;
+    }
+
+    E = localCv*Temperature + 0.5*(u[0]*u[0] + u[1]*u[1]);
+    TotEnergy = E; 
+     
+    //tGradN = Tint - 0.5*(Temperature + Tmin);
+    tGradN = 2.0*(Tint - Temperature);
+    //tGradN = (Tint - Temperature)/(sol);
+    tGradP = 0.5*(Tright - Tleft);
+    
+    tGradX = nrmX*tGradN + nrmY*tGradP;
+    tGradY = nrmY*tGradN - nrmX*tGradP;
+ 
+    if ((iMax == 5)||(iMax == 7)||(iMax == 6)||(iMax == 8)){
+      tGradX = tGradX/sqrt(2);
+      tGradY = tGradY/sqrt(2);    
+    }
+   
+}
+
+<?R
+      C(usq, sum(u*u)*(1/c_squ)) 
+      E = PV("E")
+      localOmegaH = PV("localOmegaH")
+      heq = PV(paste("heq[",1:9-1,"]",sep=""))
+      q = PV(paste("q[",1:9-1,"]",sep=""))
+              
+      for (i in 1:9) {
+           C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
+      }
+?>
+
+if(length > 0.1){
+	
+		      for (int i=0; i<3; i++){
+			 h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(localCv*(condSignX*tGradX + condSignY*tGradY)/localOmegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) - 3.0*(localCv*(tGradX*(u[0] + u[1]) + tGradY*(u[0] + u[1])))/localOmegaH + 9.0*(2.0/3.0 + 0.5*localCv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
+	     	      }	
+}
+
+<?R      
+      for (i in 1:9) {
+         C(q[i], (tn[i,i]*E*d*(1/c_squ)*(a %*% t(U))[i] + (delf[i] + feq[i])*((a %*% t(U))[i]))) #f[i]*((a %*% t(U))[i])))
+      }
+
+      for (i in 1:9) {
+           C(h[i], h[i] + localOmegaH*(heq[i] -h[i]) + (1.0-0.5*localOmegaH)*q[i] + (localOmegaH-localOmegaF)*((u %*% t(U))[i] - 0.5*usq)*(delf[i] + 0.5*F[i]))
+      }         
+    
+ 
+?>
 }
 
 CudaDeviceFunction void CollisionBGK_KH() {

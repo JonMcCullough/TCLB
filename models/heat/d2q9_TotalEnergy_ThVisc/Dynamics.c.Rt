@@ -72,7 +72,7 @@ CudaDeviceFunction real_t getTotEnergy(){
 
 CudaDeviceFunction real_t getTE2(){
    vector_t u = getU();
-	return  Cv*Temperature(0,0) + 0.5*(u.x*u.x + u.y+u.y);
+	return  Cv*Temperature(0,0) + 0.5*(u.x*u.x + u.y*u.y);
 }
 
 CudaDeviceFunction real_t getT(){
