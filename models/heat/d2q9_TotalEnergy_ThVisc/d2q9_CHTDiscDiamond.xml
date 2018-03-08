@@ -8,9 +8,26 @@
          <Solid><Box/></Solid>
          
          <BGK mask="ALL" name="Media1">
-             <Sphere  dx="2" dy="2" nx="161" ny="161" />
+            <!--  <Sphere  dx="2" dy="2" nx="161" ny="161" /> -->
+		<Box />
          </BGK> 
+
+
+        <NWall mask="ALL" name = "UpperWall">
+                          <Box dy="-1"/>
+        </NWall>
+        <SWall mask="ALL" name="LowerWall">
+                          <Box ny="1" />
+        </SWall>
+
+        <EWall mask="ALL" name = "RightWall">
+                          <Box dx="-1"/>
+        </EWall>
+        <WWall mask="ALL" name="LeftWall">
+                          <Box nx="1" />
+        </WWall>
          
+
          <Interface name="Intface">
              <Wedge   dx="40" dy="82" ny="43" nx="43" direction="LowerRight"/>
              <Wedge   dx="40" dy="40" ny="43" nx="43" direction="UpperRight"/>
@@ -44,9 +61,7 @@
             Density="1"
             ViscCoeff = "0.0"
             
-            MidX="82"
-            MidY="82"
-            
+                    
             omegaH="1.0"
             omegaH-Media2="0.8"
             
@@ -59,9 +74,14 @@
             MediaNumber="1"
             MediaNumber-Media2="2"
             
-            InitTemperature="0.0"
-            InitTemperature-Media2="0.0"
-              
+            InitTemperature="0.5"
+            InitTemperature-Media2="0.5"
+            InitTemperature-UpperWall="0.0"
+            InitTemperature-LowerWall="0.0"
+            InitTemperature-RightWall="1.0"
+            InitTemperature-LeftWall="1.0"
+           
+   
          />
     </Model>
     

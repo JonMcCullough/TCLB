@@ -1095,7 +1095,11 @@ CudaDeviceFunction void CollisionBGK_Tint() {
       tGradX = tGradX/sqrt(2);
       tGradY = tGradY/sqrt(2);
     }
-        
+    if (X==Y) {
+           printf("Y = %d, iMax = %d, n = (%f, %f), tN = (%f, %f), tC = (%f, %f) \n", Y, iMax, nrmX, nrmY, tGradN, tGradP, tGradX, tGradY);
+           printf("Y = %d, Trl = (%f, %f) Txn = (%f, %f) \n", Y, Tright, Tleft, Tmax, Tmin);
+
+}    
       <?R
       for (i in 1:9) {
         C(heq[i], feq[i]*E + ((u %*% t(U) * (1/c_squ))[i] + (u %*% t(U) * (1/c_squ))[i]*(u %*% t(U) * (1/c_squ))[i] - usq + 0.5*((U %*% t(U) * (1/c_squ))[i,i] - 2.))*tn[i,i]*d * c_squ)
@@ -1103,7 +1107,7 @@ CudaDeviceFunction void CollisionBGK_Tint() {
       ?>
       
       for (int i=0; i<3; i++){
-         h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(Cv*(condSignX*tGradX + condSignY*tGradY)/omegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) + 6.0*(Cv*(condSignX*tGradX*(u[0] + u[1]) + condSignY*tGradY*(u[0] + u[1])))/omegaH + 18.0*(2.0/3.0 + 0.5*Cv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
+         h[missingList[i]] = heq[missingList[i]] + wf[missingList[i]]*(Cv*(condSignX*tGradX + condSignY*tGradY)/omegaH + 6.0*(u[0]*(P[0] + P[1]) + u[1]*(P[1] + P[2])) + 3.0*(Cv*(condSignX*tGradX*(u[0] + u[1]) + condSignY*tGradY*(u[0] + u[1])))/omegaH + 9.0*(2.0/3.0 + 0.5*Cv*Temperature)*(P[0] + P[1] + P[1] + P[2]));
       }
          
     <?R
