@@ -63,19 +63,27 @@ for (d in rows(DensityAll)){
 AddField('TotEnergy', stencil3d=1)
 AddField('Temperature', stencil3d=1)
 
+AddField('rhoCp',stencil3d=1)
+AddField('Conductivity', stencil3d=1)
+AddField('mediaNum', stencil3d=1)
+
 AddQuantity(name="Rho",unit="kg/m3")
 AddQuantity(name="T",unit="K")
 AddQuantity(name="U",unit="m/s",vector=T)
 AddQuantity(name="TotEnergy")
+AddQuantity(name="T2",unit="K")
+AddQuantity(name="TE2")
+AddQuantity(name="Cv")
 
-AddSetting(name="omegaF", comment='one over F relaxation time')
-AddSetting(name="nu", omegaF='1.0/(3*nu + 0.5)', default="0.16666666", comment='viscosity')
 
-AddSetting(name="Prandtl", comment = 'Prandtl Number')
-AddSetting(name="gamma1", default=1, comment = 'Ratio of specific heats')
-AddSetting(name="omegaH", comment='one over H relaxation time')
-AddSetting(name="alpha", omegaH='1.0/(3*alpha + 0.5)', default=0.16666666, comment='Thermal Diffusivity')
-AddSetting(name="k", default=1, comment='Thermal Conductivity')
+AddSetting(name="omegaF", zonal=TRUE, comment='one over F relaxation time')
+#AddSetting(name="nu", omegaF='1.0/(3*nu + 0.5)', default="0.16666666", comment='viscosity')
+
+#AddSetting(name="Prandtl", comment = 'Prandtl Number')
+#AddSetting(name="gamma1", default=1, comment = 'Ratio of specific heats')
+AddSetting(name="omegaH", zonal=TRUE, comment='one over H relaxation time')
+AddSetting(name="alpha",  default=0.16666666, comment='Thermal Diffusivity')
+AddSetting(name="conductivity", default=1, zonal=TRUE, comment='Thermal Conductivity')
 
 AddSetting(name="omegaHplus", comment='one over H+ relaxation time for TRT')
 AddSetting(name="omegaHminus", comment='one over H- relaxation time for TRT')
@@ -85,8 +93,9 @@ AddSetting(name="omegaFminus", comment='one over F- relaxation time for TRT')
 AddSetting(name="ViscCoeff", default=1, comment='Thermoviscous coefficient')
 AddSetting(name="BoussinesqCoeff", default=0.0, comment='Boussinesq force coefficient')
 
-AddSetting(name='Cv', default = 1, comment='Thermal Cv')
-AddSetting(name='Cp', default = 1, comment='Thermal Cp')
+AddSetting(name='Cv', default = 1, zonal=TRUE, comment='Thermal Cv')
+AddSetting(name='Cp', default = 1, zonal=TRUE, comment='Thermal Cp')
+AddSetting(name='RhoCp', default = 1, zonal=TRUE, comment='Thermal heat capacity')
 
 AddSetting(name="WallVelocityX", default="0.0", zonal=TRUE, comment='WallVelocity x-direction')
 AddSetting(name="WallVelocityY", default="0.0", zonal=TRUE, comment='WallVelocity y-direction')
@@ -102,6 +111,7 @@ AddSetting(name="InletDensity", default=1, comment='inlet density')
 AddSetting(name="InitTemperature", default=1, zonal = TRUE, comment='initial temperature')
 AddSetting(name="WallTemperatureGradient", default=0, zonal = TRUE, comment='Gradient of temperature along wall')
 
+AddSetting(name="MediaNumber", default=1, zonal=TRUE, comment='Media Number')
 
 AddSetting(name="GravitationX", default=0.0, comment='applied (rho)*GravitationX')
 AddSetting(name="GravitationY", default=0.0, comment='applied (rho)*GravitationY')
@@ -117,4 +127,7 @@ AddNodeType(name="WWall", group="BOUNDARY")
 AddNodeType(name="SWall", group="BOUNDARY")
 AddNodeType(name="FWall", group="BOUNDARY")
 AddNodeType(name="BWall", group="BOUNDARY")
+
+AddNodeType(name="Interface", group="ADDITIONALS")
+AddNodeType(name="Med2", group="ADDITIONALS")
 
