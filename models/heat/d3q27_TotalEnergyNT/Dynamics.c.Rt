@@ -237,6 +237,7 @@ CudaDeviceFunction void Init() {
 CudaDeviceFunction void Run() {
     sol = 0;
     sol = CalcSolid();
+    AddToTotalSVF(sol);
 
 /*
     localCv = sol*SolidCv + (1.0 - sol)*FluidCv;
@@ -833,8 +834,30 @@ CudaDeviceFunction void SetEquilibrum(const real_t d, const real_t u[3])
 }
 
 
-
 CudaDeviceFunction real_t CalcSolid(){
+        real_t coverage = 0, ret = 0;
+
+        for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1.5) {
+                if ((p.dist - p.rad) < - 1){
+                        coverage = 1.0;
+                } else{
+                        coverage = (p.rad -  0.084/p.rad + 0.5 - p.dist);
+                }
+
+                if (coverage > 1.0){ coverage =  1.0;}
+                if (coverage < 0.0){ coverage =  0.0;}
+
+                ret += coverage;
+
+        }
+
+        if (ret > 1.0){ ret =  1.0;}
+        if (ret < 0.0){ ret = 0.0;}
+
+        return ret;
+}
+
+CudaDeviceFunction real_t CalcPeriodicSolid(){
         real_t coverage = 0, ret = 0;
 
         for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1.5) {

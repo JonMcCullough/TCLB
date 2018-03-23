@@ -121,7 +121,6 @@ AddSetting(name="WallTemperatureGradient", default=0, zonal = TRUE, comment='Gra
 
 AddSetting(name="MediaNumber", default=1, zonal=TRUE, comment='Media Number')
 
-
 AddSetting(name="GravitationX", default=0.0, comment='applied (rho)*GravitationX')
 AddSetting(name="GravitationY", default=0.0, comment='applied (rho)*GravitationY')
 AddSetting(name="GravitationZ", default=0.0, comment='applied (rho)*GravitationZ')
@@ -129,6 +128,9 @@ AddSetting(name="GravitationZ", default=0.0, comment='applied (rho)*GravitationZ
 AddSetting(name="AccelX", default=0.0, comment='body acceleration X')
 AddSetting(name="AccelY", default=0.0, comment='body acceleration Y')
 AddSetting(name="AccelZ", default=0.0, comment='body acceleration Z')
+
+
+AddGlobal(name="TotalSVF", comment='Total of solids throughout domain')
 
 AddNodeType(name="NWall", group="BOUNDARY")
 AddNodeType(name="EWall", group="BOUNDARY")
