@@ -129,7 +129,9 @@ AddSetting(name="AccelX", default=0.0, comment='body acceleration X')
 AddSetting(name="AccelY", default=0.0, comment='body acceleration Y')
 AddSetting(name="AccelZ", default=0.0, comment='body acceleration Z')
 
-
+AddSetting(name="DNx", default = 0, comment='Total nodes in X direction')
+AddSetting(name="DNy", default = 0, comment='Total nodes in Y direction')
+AddSetting(name="DNz", default = 0, comment='Total nodes in Z direction')
 AddGlobal(name="TotalSVF", comment='Total of solids throughout domain')
 
 AddNodeType(name="NWall", group="BOUNDARY")

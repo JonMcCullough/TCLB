@@ -41,9 +41,9 @@ front = c(0, 5, 5, 5, 5, 3, 3, 5, 5,  5, 5,  3,  3,  3,  3,  1,  1,  1,  1, 22, 
 
 ?>
 
-real_t const d3q27_cx[27] = {0, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1};
-real_t const d3q27_cy[27] = {0, 0, 0, 1,-1, 0, 0, 1, 1,-1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1, 1,-1,-1, 1, 1,-1,-1};
-real_t const d3q27_cz[27] = {0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1};
+//real_t const d3q27_cx[27] = {0, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1};
+//real_t const d3q27_cy[27] = {0, 0, 0, 1,-1, 0, 0, 1, 1,-1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1, 1,-1,-1, 1, 1,-1,-1};
+//real_t const d3q27_cz[27] = {0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1};
 
 CudaDeviceFunction real_t getRho(){
 	return <?R C(sum(f)) ?> ;
@@ -236,7 +236,8 @@ CudaDeviceFunction void Init() {
 
 CudaDeviceFunction void Run() {
     sol = 0;
-    sol = CalcSolid();
+    //sol = CalcSolid();
+    sol = CalcPeriodicSolid();
     AddToTotalSVF(sol);
 
 /*
@@ -859,12 +860,31 @@ CudaDeviceFunction real_t CalcSolid(){
 
 CudaDeviceFunction real_t CalcPeriodicSolid(){
         real_t coverage = 0, ret = 0;
+	//real_t dist, dx, dy, dz;
+	
+        for (FullParticleIterator p(X,Y,Z); p; ++p) {
+	    real_t dx = p.diff.x;
+	    real_t dy = p.diff.y;
+	    real_t dz = p.diff.z;
+            if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
+	        dx = DNx - abs(dx);
+            }
+	    
+	    if ((DNy>0) && ((DNy - abs(dy)) < (p.rad + 2))) {
+	        dy = DNy - abs(dy);
+            }
+	    		
+	    if ((DNz>0) && ((DNz - abs(dz)) < (p.rad + 2))) {
+	        dz = DNx - abs(dz);
+            }
 
-        for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1.5) {
-                if ((p.dist - p.rad) < - 1){
+	    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
+	
+	    if ((dist - p.rad)<1.5) {
+                if ((dist - p.rad) < - 1){
                         coverage = 1.0;
                 } else{
-                        coverage = (p.rad -  0.084/p.rad + 0.5 - p.dist);
+                        coverage = (p.rad -  0.084/p.rad + 0.5 - dist);
                 }
 
                 if (coverage > 1.0){ coverage =  1.0;}
@@ -872,9 +892,10 @@ CudaDeviceFunction real_t CalcPeriodicSolid(){
 
                 ret += coverage;
 
-        }
-
-        if (ret > 1.0){ ret =  1.0;}
+           }
+	}
+	
+	if (ret > 1.0){ ret =  1.0;}
         if (ret < 0.0){ ret = 0.0;}
 
         return ret;
@@ -1067,6 +1088,10 @@ CudaDeviceFunction void CollisionBGK_CalcF() {
 CudaDeviceFunction void CollisionBGK_CHT_CalcF() {
     real_t u[3], d, feq[27], heq[27], F[27], q[27], delf[27];    real_t uP[3], omegaS[27], feqP[27], coverage=0, numP=0;
 
+real_t const d3q27_cx[27] = {0, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1};
+real_t const d3q27_cy[27] = {0, 0, 0, 1,-1, 0, 0, 1, 1,-1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1, 1,-1,-1, 1, 1,-1,-1};
+real_t const d3q27_cz[27] = {0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1};
+
     uP[0] = 0;
     uP[1] = 0;
     uP[2] = 0;
@@ -1100,7 +1125,7 @@ CudaDeviceFunction void CollisionBGK_CHT_CalcF() {
     u[2] = ((<?R C(f %*% U[,3]) ?>)/d + 0.5*(AccelZ + GravitationZ) );
 
 	if (sol > 0){
-                for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1) {
+                for (SyncParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1) {
 
                         numP += 1.0;      
                       
@@ -1109,7 +1134,7 @@ CudaDeviceFunction void CollisionBGK_CHT_CalcF() {
                         uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
                 }
         }
-        CudaSyncThreads();
+        //CudaSyncThreads();
 
     real_t usq, uPsq;
     <?R
@@ -1356,6 +1381,10 @@ if (length>0.1){
 CudaDeviceFunction void CollisionBGK_Tint() {
     real_t u[3], d, feq[27], heq[27], F[27], q[27], delf[27];
     real_t P[6], Tint;
+
+real_t const d3q27_cx[27] = {0, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1,-1, 1,-1};
+real_t const d3q27_cy[27] = {0, 0, 0, 1,-1, 0, 0, 1, 1,-1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1, 1,-1,-1, 1, 1,-1,-1};
+real_t const d3q27_cz[27] = {0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1};
 
     // Assume Gravity in y-direction
     real_t localGravitationY = GravitationY - GravitationY*BoussinesqCoeff*(Temperature(0,0,0) - 0.5);
