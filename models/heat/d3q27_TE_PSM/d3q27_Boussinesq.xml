@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_ThVisc 
+    Created: 	15-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="64" ny="16" nz="64">
+         <BGK><Box/></BGK>   
+        <NWall mask="ALL" name = "NorthWall">
+			  <Box dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="SouthWall">
+			  <Box ny="1" />
+        </SWall>
+        <None name="box">
+           <Box dx="10" nx="5" dy="1" ny="5" dz="1" nz="5" />
+        </None> 
+
+        
+    </Geometry>
+
+    
+    <Model>
+         <Params         
+            omegaF="1.0"
+            omegaH="1.0"  
+            
+            omegaFplus="1.0"
+            omegaFminus="1.0"
+            omegaHplus="1.0"
+            omegaHminus="1.0"
+                  
+            GravitationX="0.0" 
+            GravitationY="-1e-5"         
+            Density="1"
+            Cv = "0.1"
+            ViscCoeff = "0.0"
+            BoussinesqCoeff = "1000.0"
+                        
+            InitTemperature="0.0"
+            InitTemperature-NorthWall="0.0"
+            InitTemperature-SouthWall="1.0"
+            InitTemperature-box="1.0"
+
+                                   
+                
+         />
+    </Model>
+    <VTK />
+    <VTK Iterations="1000"/>
+    <Solve Iterations="20000"/>
+</CLBConfig>

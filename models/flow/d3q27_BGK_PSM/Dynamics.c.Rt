@@ -1,0 +1,546 @@
+<?R
+	source("conf.R")
+	c_header();
+
+
+# Creating variables for symbolic computations
+	f = PV(DensityAll$name[DensityAll$group=="f"])
+	rho =  PV("rho")
+	J = PV("J",c("x","y","z"))
+	tmp = PV("tmp")
+
+# Extracting velocity set
+	U = as.matrix(DensityAll[DensityAll$group=="f",c("dx","dy","dz")])
+
+# Calculating equlibrium density set
+	source("lib/feq.R")
+	source("lib/boundary.R")
+
+	EQ = MRT_eq(U, rho, J, ortogonal=FALSE);
+#	EQ = MRT_eq(U, rho, J);
+?>
+
+CudaDeviceFunction void CalcF(){
+         for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+		if ((NodeType & NODE_BOUNDARY)==0){
+	            real_t omegaS[27], feqP[27], feq[27], u[3], uP[3];
+	  	    real_t d, usq, uPsq;	
+		    real_t numP = 0;
+
+		    uP[0] = 0.0;
+		    uP[1] = 0.0;
+		    uP[2] = 0.0;
+				
+		    d=getRho();
+		    u[0] = ((<?R C(f %*% U[,1]) ?> + 0.5*fx)/d + 0.5*(AccelX + GravitationX) );
+		    u[1] = ((<?R C(f %*% U[,2]) ?> + 0.5*fy)/d + 0.5*(AccelY + GravitationY) );
+		    u[2] = ((<?R C(f %*% U[,3]) ?> + 0.5*fz)/d + 0.5*(AccelZ + GravitationZ) );
+
+		    //if ((p.dist - p.rad)<0) {
+                    //    numP += 1.0;
+		    //
+                    //    uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+                    //    uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+                    //    uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
+                    //}
+        
+		//for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+		   if ((p.dist - p.rad)<1.0) {
+
+		    uP[0] = p.cvel.x;
+                    uP[1] = p.cvel.y;
+                    uP[2] = p.cvel.z;
+
+                <?R
+			 u = PV(paste("u[",1:3-1,"]",sep=""))
+			 uP = PV(paste("uP[",1:3-1,"]",sep=""))
+		         d = PV("d")
+			 usq = PV ("usq")
+			 uPsq = PV ("uPsq")
+			 feq = PV(paste("feq[",1:27-1,"]",sep=""))
+			 feqP = PV(paste("feqP[",1:27-1,"]",sep=""))
+			 omegaS = PV(paste("omegaS[",1:27-1,"]",sep=""))
+			 omegaF = PV("omegaF")
+
+		      bounce = c(0,2,1,4,3,6,5,10,9,8,7,14,13,12,11,18,17,16,15,26,25,24,23,22,21,20,19)
+		      c_squ = 1/3
+		      t1 = 8/27
+		      t2 = 2/27
+		      t3 = 1/54
+		      t4 = 1/216
+		      tn = diag(c(t1,t2,t2,t2,t2,t2,t2,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t4,t4,t4,t4,t4,t4,t4,t4))
+
+		      C(usq, sum(u*u)*(1/c_squ))
+		      for (i in 1:27){
+		         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+		      }
+
+
+                    C(uPsq, sum(uP*uP)*(1/c_squ))
+
+                    for (i in 1:27){
+                        C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+                    }
+                    for (i in 1:27){
+                        C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
+			
+                        #C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
+                    }
+                ?>
+                  
+	            real_t localCoverage = 0.0;
+
+                    if ((p.dist - p.rad) < -1.0){
+                        localCoverage = 1.0;
+                    } else{
+                        localCoverage = (p.rad -  0.084/p.rad + 0.5 - p.dist);
+                    }
+
+                    if (localCoverage > 1.0){ localCoverage =  1.0;}
+                    if (localCoverage < 0.0){ localCoverage =  0.0;}
+
+		    vector_t force;
+                    force.x=0.0; force.y=0.0; force.z=0.0;
+
+                    force.x = -localCoverage * ( <?R C(t(U[,1] %*% omegaS)) ?> );
+                    force.y = -localCoverage * ( <?R C(t(U[,2] %*% omegaS)) ?> );
+                    force.z = -localCoverage * ( <?R C(t(U[,3] %*% omegaS)) ?> );
+
+		    fx = 0.0;//-force.x;
+		    fy = 0.0;//-force.y;
+		    fz = 0.0;//-force.z;
+
+		    p.applyForce(force);
+		
+	//if (localCoverage > 0) {
+	//	printf("force = (%f, %f, %f), feq = %f, feqP = %f,  u = (%f, %f, %f), uP = (%f, %f, %f), sol = %f d = %f \n", force.x, force.y, force.z, feq[0], feqP[0], u[0], u[1], u[2], uP[0], uP[1], uP[2], localCoverage, d);
+	//	
+	//	printf("force = (%f, %f, %f), force2 = (%f, %f, %f) \n", force.x, force.y, force.z, u[0] - p.cvel.x, u[1] - p.cvel.y, u[2] - p.cvel.z);
+	//}
+		    sol = localCoverage; //p.dist/3.2;
+	          }
+	     }
+	}	
+}   
+
+
+
+CudaDeviceFunction real_t getRho(){
+	return <?R C(sum(f)) ?>;
+}
+
+CudaDeviceFunction real_t getP(){
+	return ((<?R C(sum(f)) ?>)-1.0)/3.0;
+}
+CudaDeviceFunction vector_t getU_(){
+        real_t d = getRho();
+        vector_t u;
+<?R C(PV(c("u.x","u.y", "u.z")), f %*% U) ?>
+    if((NodeType & NODE_BOUNDARY) == NODE_Wall){
+        u.x = 0;
+        u.y = 0;
+        u.z = 0;
+        }
+        else{
+                u.x = (u.x + fx/2.)/d;
+        	u.y = (u.y + fy/2.)/d;
+        	u.z = (u.z + fz/2.)/d;
+    }
+        return u;
+}
+
+CudaDeviceFunction vector_t getU(){
+	RunBoundaries();
+	return getU_();
+
+}
+
+CudaDeviceFunction vector_t getF(){
+	vector_t f;
+	f.x=fx;
+	f.y=fy;
+	f.z=fz;
+	return f;
+}
+
+CudaDeviceFunction real_t getSolid(){
+	return sol;
+}
+
+CudaDeviceFunction real_t CalcSolid(){
+        real_t coverage = 0, ret = 0;
+
+        for (ParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1.0) {
+                if ((p.dist - p.rad) < - 1){
+                        coverage = 1.0;
+                } else{
+                        coverage = (p.rad -  0.084/p.rad + 0.5 - p.dist);
+                }
+
+                if (coverage > 1.0){ coverage =  1.0;}
+                if (coverage < 0.0){ coverage =  0.0;}
+
+                ret += coverage;
+
+        }
+
+        if (ret > 1.0){ ret =  1.0;}
+        if (ret < 0.0){ ret = 0.0;}
+
+        return ret;
+}
+
+
+#ifdef OPTIONS_AVG
+CudaDeviceFunction real_t getaverageP(){
+	return avgP/average_iter;
+}
+CudaDeviceFunction real_t getDissipation(){
+        real_t diss;
+       	diss = nu*((avgdxu2/average_iter)-(avgUX(1,0,0) - avgUX(-1,0,0))*(avgUX(1,0,0) - avgUX(-1,0,0))/(4*average_iter*average_iter));
+       	diss = diss + nu*((avgdyv2/average_iter) -(avgUY(0,1,0) - avgUY(0,-1,0))*(avgUY(0,1,0) - avgUY(0,-1,0))/(4*average_iter*average_iter));
+       	diss = diss + nu*((avgdzw2/average_iter) - (avgUZ(0,0,1) - avgUZ(0,0,-1))*(avgUZ(0,0,1) - avgUZ(0,0,-1))/(4*average_iter*average_iter));
+        return diss;
+}
+CudaDeviceFunction vector_t getavgU(){
+        vector_t u;
+        u.x = avgUX(0,0,0)/average_iter;  //avgUX(0,0,0) in fact
+        u.y = avgUY(0,0,0)/average_iter;
+        u.z = avgUZ(0,0,0)/average_iter;
+        return u;
+}
+CudaDeviceFunction vector_t getvarU(){
+        vector_t u;
+        u.x = varUX/average_iter - getavgU().x*getavgU().x;
+        u.y = varUY/average_iter - getavgU().y*getavgU().y;
+        u.z = varUZ/average_iter - getavgU().z*getavgU().z;
+        return u;
+}
+CudaDeviceFunction vector_t getReStr(){
+        vector_t st;
+        st.x = varUYUZ/average_iter - getavgU().y*getavgU().z;
+        st.y = varUXUZ/average_iter - getavgU().x*getavgU().z;
+        st.z = varUXUY/average_iter - getavgU().x*getavgU().y;
+        return st;
+}
+CudaDeviceFunction real_t getKinE(){
+	real_t ke;
+	ke = 0.5*(getvarU().x + getvarU().y + getvarU().z);
+	return ke;
+}
+
+#endif
+CudaDeviceFunction float2 Color() {
+        float2 ret;
+        vector_t u = getU();
+        ret.x = sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
+	ret.y = 1.0-sol;
+        return ret;
+}
+CudaDeviceFunction void BounceBack()
+{
+    vector_t p1,p2;
+<?R C(PV(c("p1.x","p1.y", "p1.z")), f %*% U) ?>
+
+<?R FullBounceBack() ?>
+
+<?R C(PV(c("p2.x","p2.y", "p2.z")), f %*% U) ?>
+
+//Summing the difference in momentum before/after collision
+if((NodeType & NODE_BODY) == NODE_Body) {
+    AddToDrag(-(p2.x-p1.x));
+    AddToLateral(-(p2.y-p1.y));
+    AddToLift(-(p2.z-p1.z));
+    }
+}
+
+CudaDeviceFunction void EVelocity()
+{
+<?R ZouHe(EQ, 1, -1, "velocity") ?>
+}
+
+CudaDeviceFunction void WVelocity()
+{
+<?R ZouHe(EQ, 1, 1, "velocity") ?>
+}
+
+CudaDeviceFunction void SVelocity()
+{
+<?R ZouHe(EQ, 2, 1, "velocity") ?>
+}
+
+CudaDeviceFunction void NVelocity()
+{
+<?R ZouHe(EQ, 2, -1, "velocity") ?>
+}
+
+CudaDeviceFunction void WPressure()
+{
+<?R ZouHe(EQ, 1, 1, "pressure") ?>
+}
+
+CudaDeviceFunction void SPressure()
+{
+<?R ZouHe(EQ, 2, 1, "pressure") ?>
+}
+
+CudaDeviceFunction void NPressure()
+{
+<?R ZouHe(EQ, 2, -1, "pressure") ?>
+}
+
+CudaDeviceFunction void EPressure()
+{
+<?R ZouHe(EQ, 1, -1, "pressure") ?>
+}
+CudaDeviceFunction void NSymmetry()
+{
+//Symmetry on the top of the boundary
+<?R Symmetry(2,-1) ?>
+}
+
+CudaDeviceFunction void SSymmetry()
+{
+//Symmetry on the bottom of the boundary
+<?R Symmetry(2,1) ?>
+}
+
+#ifdef OPTIONS_IB
+CudaDeviceFunction void InterpolatedBounceBack()
+{
+	real_t q;
+	vector_t F;
+	F.x = F.y = F.z = 0.0;
+<?R
+        bounce = Bounce(U);
+        sel = DensityAll$group=="f"
+        attach(DensityAll[sel,])
+        f = PV(name)
+        fold = PV(name,"(0,0,0)")
+        fpre = PV(name,"(",-dx,",",-dy,",",-dz,")")
+        QU = cbind(dx,dy,dz)
+        detach()
+        Qw = PV( paste("Q",P$x,P$y,P$z,sep=""))
+        Q = PV( "q")
+	F = PV("F.",c("x","y","z"))
+        for (i in 2:length(Qw)) {
+                C(Q,Qw[i]);
+?>
+        if (q != NO_CUT) {
+                real_t p = ((real_t)q) * 0.01; // q * 0.005 * 2 <?R p = PV("p"); op = p^(-1); ?>
+                real_t fa = <?R C(fold[i]) ?>; <?R fa = PV("fa"); ?>
+                if (p > 1.0) { <?R
+			C(f[bounce[i]],fa*op + fold[bounce[i]]*(p-1)*op) ?>
+                } else { <?R
+			C(f[bounce[i]],fa*p + f[i]*(1-p)) ?>
+                }
+	<?R
+                        v = (f[bounce[i]] - fa) * QU[i,]
+                        for (j in 1:3) if (! is.zero(v[j])) C(F[j],F[j] + v[j]) ?>
+	}
+	<?R
+	}
+	?>
+	if((NodeType & NODE_BODY) == NODE_Body) { <?R
+	for (j in 1:3) { ?>
+		AddTo<?%s c("Drag","Lateral","Lift")[j] ?>(<?R C(F[j]) ?>); <?R
+	} ?>
+	}
+}
+#endif
+
+CudaDeviceFunction void RunBoundaries() {
+#ifdef OPTIONS_IB
+    switch (NodeType & NODE_HO_BOUNDARY) {
+    case NODE_IB:
+            InterpolatedBounceBack();
+            break;
+    }
+#endif
+    switch (NodeType & NODE_ADDITIONALS) {
+	case NODE_NSymmetry:
+	    NSymmetry();
+            break;
+        case NODE_SSymmetry:
+            SSymmetry();
+            break;
+    }
+    switch (NodeType & NODE_BOUNDARY) {
+	case NODE_WVelocityTurbulent:
+		WVelocityTurbulent();
+		break;
+	case NODE_EPressure:
+        EPressure();
+        break;
+	case NODE_WPressure:
+		WPressure();
+		break;
+	case NODE_SPressure:
+        SPressure();
+        break;
+	case NODE_NPressure:
+        NPressure();
+        break;
+	case NODE_WVelocity:
+		WVelocity();
+		break;
+	 case NODE_NVelocity:
+        NVelocity();
+        break;
+	 case NODE_SVelocity:
+        SVelocity();
+        break;
+	case NODE_EVelocity:
+		EVelocity();
+		break;
+	case NODE_Wall:
+		BounceBack();
+        break;
+    }
+}
+
+CudaDeviceFunction void Run() {
+	//sol=0;
+	//sol=CalcSolid();
+    
+        RunBoundaries();
+    switch (NodeType & NODE_COLLISION) {
+	case NODE_MRT:
+		//CollisionMRT();
+		CollisionBGK();
+		break;
+    }
+	fx=ForceX;
+	fy=ForceY;
+	fz=ForceZ;
+
+	sol = 0;
+}
+
+CudaDeviceFunction void SetEquilibrum(real_t rho, real_t Jx, real_t Jy, real_t Jz)
+{
+	<?R
+		C(f, EQ$Req %*% solve(EQ$mat));
+	?>
+}
+
+CudaDeviceFunction void Init() {
+	vector_t ST = SyntheticTurbulence(X,Y,Z);
+	ST.x = Turbulence*ST.x + Velocity;
+	ST.y = Turbulence*ST.y;
+	ST.z = Turbulence*ST.z;
+
+	if((NodeType & NODE_BOUNDARY) == NODE_Wall){
+	    SetEquilibrum(1.0,0,0,0);}
+	else SetEquilibrum(1.0 + Pressure * 3.0, ST.x, ST.y, ST.z);
+	fx=ForceX;
+        fy=ForceY;
+        fz=ForceZ;
+        sol=0;
+	//sol = CalcSolid();
+}
+
+CudaDeviceFunction void WVelocityTurbulent() {
+      	vector_t ST = SyntheticTurbulence(X-Time*Velocity,Y,Z);
+	ST.x = Turbulence*ST.x + Velocity;
+	ST.y = Turbulence*ST.y;
+	ST.z = Turbulence*ST.z; 
+	<?R ZouHe(EQ, 1, 1, "velocity",V=PV("ST.x"),V3=c(PV("ST.x"),PV("ST.y"),PV("ST.z"))) ?> 
+}
+
+
+CudaDeviceFunction void CollisionBGK()
+{
+    real_t u[3], d, feq[27], F[27];
+    real_t uP[3], feqP[27], omegaS[27];
+    real_t numP = 0.0;
+
+    d = getRho();
+    // pu* = pu + 0.5pa
+    u[0] = ((<?R C(f %*% U[,1]) ?> + 0.5*fx)/d + 0.5*(AccelX + GravitationX) );
+    u[1] = ((<?R C(f %*% U[,2]) ?> + 0.5*fy)/d + 0.5*(AccelY + GravitationY) );
+    u[2] = ((<?R C(f %*% U[,3]) ?> + 0.5*fz)/d + 0.5*(AccelZ + GravitationZ) );
+
+        
+    uP[0]=0.0;
+    uP[1]=0.0;
+    uP[2]=0.0;
+	
+    if (sol > 0){
+       for (SyncParticleIterator p(X,Y,Z); p; ++p) if ((p.dist - p.rad)<1.0) {
+
+            numP += 1.0;
+
+            uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+            uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+            uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
+       }
+    } 
+	
+    real_t usq, uPsq;
+    <?R
+      u = PV(paste("u[",1:3-1,"]",sep=""))
+      uP = PV(paste("uP[",1:3-1,"]",sep=""))
+      d = PV("d")
+      sol = PV("sol")
+      usq = PV ("usq")
+      uPsq = PV ("uPsq")
+      a = PV(c("(AccelX + GravitationX)", "(AccelY + GravitationY)", "(AccelZ + GravitationZ)"))
+      F = PV(paste("F[",1:27-1,"]",sep=""))
+      feq = PV(paste("feq[",1:27-1,"]",sep=""))
+      feqP = PV(paste("feqP[",1:27-1,"]",sep=""))
+      omegaS = PV(paste("omegaS[",1:27-1,"]",sep=""))
+
+      t1 = 8/27
+      t2 = 2/27
+      t3 = 1/54
+      t4 = 1/216
+      c_squ = 1/3
+
+      tn = diag(c(t1,t2,t2,t2,t2,t2,t2,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t3,t4,t4,t4,t4,t4,t4,t4,t4))
+      bounce = c(0,2,1,4,3,6,5,10,9,8,7,14,13,12,11,18,17,16,15,26,25,24,23,22,21,20,19)
+
+
+      C(usq, sum(u*u)*(1/c_squ))
+      for (i in 1:27){
+         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+      }
+
+      for (i in 1:27) {
+         C(F[i], ((a %*% t(U))[i] + (1/c_squ)*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*(1/c_squ)*d)
+      }
+
+	C(uPsq, sum(uP*uP)*(1/c_squ))
+        for (i in 1:27){
+                C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+        }
+        for (i in 1:27){
+                C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) # Non-eq bounceback operator
+
+                # C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
+        }
+
+      omegaF = PV(c("omegaF"))
+      for (i in 1:27) {
+         C(f[i], f[i] + (1.0-sol)*(omegaF*(feq[i]-f[i]) + (1.0-0.5*omegaF)*F[i]) + sol*omegaS[i])
+      }
+    ?>
+
+	//if (sol>0) {
+	//	printf("feq = %f; feqP = %f, u = (%f, %f, %f), uP = (%f, %f, %f), sol = %f, d = %f \n", feq[0], feqP[0], u[0], u[1], u[2], uP[0], uP[1], uP[2], sol, d);
+	//}
+	
+#ifdef OPTIONS_AVG
+avgP =  avgP + getP();
+avgUX = avgUX(0,0,0) + getU_().x;
+avgUY = avgUY(0,0,0) + getU_().y;
+avgUZ = avgUZ(0,0,0) + getU_().z;
+varUX = varUX + getU_().x*getU_().x;
+varUY = varUY + getU_().y*getU_().y;
+varUZ = varUZ + getU_().z*getU_().z;
+varUXUY = varUXUY + getU_().x*getU_().y;
+varUXUZ = varUXUZ + getU_().x*getU_().z;
+varUYUZ = varUYUZ + getU_().y*getU_().z;
+#endif
+}
+
