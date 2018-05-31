@@ -974,10 +974,11 @@ CudaDeviceFunction void CalcF() {
         //
         //      printf("force = (%f, %f, %f), force2 = (%f, %f, %f) \n", force.x, force.y, force.z, u[0] - p.cvel.x, u[1] - p.cvel.y, u[2] - p.cvel.z);
         //}
-                    sol = localCoverage; 
+                    //sol = localCoverage; 
                   }
              }
         }
+	sol = CalcPeriodicSolid();
 }
 
 CudaDeviceFunction void CollisionBGK() {

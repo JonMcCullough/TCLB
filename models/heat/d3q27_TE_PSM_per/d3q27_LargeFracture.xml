@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<!--Model:	d2q9_TotalEnergy_ThVisc 
+    Created: 	15-11-2017 
+    By:		J.McCullough -->
+<CLBConfig version="2.0" output="output/">
+   
+    <Geometry nx="512" ny="64" nz="16">
+         <BGK><Box/></BGK>
+         
+        <EWall mask="ALL" name = "EastWall">
+			  <Box dx="-1"/>
+        </EWall>
+		  <WWall mask="ALL" name="WestWall">
+			  <Box nx="1" />
+        </WWall>   
+        <NWall mask="ALL" name = "NorthWall">
+			  <Box dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="SouthWall">
+			  <Box ny="1" />
+        </SWall>
+        <FWall mask="ALL" name = "FrontWall">
+			  <Box dz="-1"/>
+        </FWall>
+		  <BWall mask="ALL" name="BackWall">
+			  <Box nz="1" />
+        </BWall>
+        <NWall mask="ALL" name = "StartNorthWall">
+			  <Box nx="32" dy="-1"/>
+        </NWall>
+		  <SWall mask="ALL" name="StartSouthWall">
+			  <Box nx="32" ny="1" />
+        </SWall>
+        <FWall mask="ALL" name = "StartFrontWall">
+			  <Box nx="32" dz="-1"/>
+        </FWall>
+		  <BWall mask="ALL" name="StartBackWall">
+			  <Box nx="32" nz="1" />
+        </BWall>
+        
+        
+    </Geometry>
+
+    
+    <Model>
+         <Params         
+            omegaF="1.0"
+            omegaH="1.0"  
+            
+            omegaFplus="1.0"
+            omegaFminus="1.0"
+            omegaHplus="1.0"
+            omegaHminus="1.0"
+                  
+            GravitationX="0.0" 
+            GravitationY="0.0"         
+            Density="1"
+            Cv = "0.1"
+            ViscCoeff = "1.0"
+            BoussinesqCoeff = "0.0"
+                        
+            InitTemperature="0.0"
+            InitTemperature-StartNorthWall="1.0"
+            InitTemperature-StartSouthWall="1.0"
+            InitTemperature-EastWall="0.0"
+            InitTemperature-WestWall="1.0"
+            InitTemperature-StartFrontWall="1.0"
+            InitTemperature-StartBackWall="1.0"
+            
+            WallTemperatureGradient-StartNorthWall="-0.03125"
+            WallTemperatureGradient-StartSouthWall="-0.03125"
+            WallTemperatureGradient-EastWall="0.0"
+            WallTemperatureGradient-WestWall="0.0"
+            WallTemperatureGradient-StartFrontWall="-0.03125"
+            WallTemperatureGradient-StartBackWall="-0.03125"
+                        
+            InitVelocityX = "0.00"
+            
+            WallVelocityY-NorthWall="0.0006172839506" 
+            WallVelocityY-SouthWall="-0.0006172839506"
+            WallVelocityX-EastWall="0.0006172839506" 
+            WallVelocityX-WestWall="0.05"  
+            WallVelocityZ-FrontWall="0.0006172839506" 
+            WallVelocityZ-BackWall="-0.0006172839506"                 
+         />
+    </Model>
+    <VTK />
+    <VTK Iterations="100"/>
+    <Solve Iterations="3000"/>
+</CLBConfig>

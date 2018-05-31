@@ -8,9 +8,9 @@ sbatch <<EOT
 #SBATCH --error=my/logs/err.%6j
 
 #SBATCH -w, --nodelist=c4130-2
-#SBATCH --ntasks=7
-#SBATCH --ntasks-per-node=7
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks=9
+#SBATCH --ntasks-per-node=9
+#SBATCH --gres=gpu:4
 
 #SBATCH --time=10:00:00
 
@@ -25,7 +25,7 @@ echo "Nodes:"
 echo $SLURM_NODELIST
 nvidia-smi
 
-mpirun -np 2 -x LD_LIBRARY_PATH -x PATH -x PYTHONPATH ${1} ${2} 
+mpirun -np 4 -x LD_LIBRARY_PATH -x PATH -x PYTHONPATH ${1} ${2} 
 
 
 wait
