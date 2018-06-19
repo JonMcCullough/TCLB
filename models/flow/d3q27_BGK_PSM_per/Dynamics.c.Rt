@@ -560,9 +560,9 @@ CudaDeviceFunction void CalcF() {
                         C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
                     }
                     for (i in 1:27){
-                        #C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
+                        C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
 
-                        C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
+                        #C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
                     }
                 ?>
 
@@ -688,6 +688,9 @@ CudaDeviceFunction void CollisionBGK_PSM() {
              }
        }
     }
+
+    localOmegaF = omegaF;
+
 <?R	
        C(usq, sum(u*u)*(1/c_squ)) 
        for (i in 1:27){
@@ -698,22 +701,15 @@ CudaDeviceFunction void CollisionBGK_PSM() {
          C(F[i], ((a %*% t(U))[i] + (1/c_squ)*(a %*% t(U))[i]*(u %*% t(U))[i] - (u %*% a)) * tn[i,i]*(1/c_squ)*d)
       }
  
-?>
-
-     
-      localOmegaF = omegaF;
-      
-      <?R
-        localOmegaF = PV(c("localOmegaF")) 
+       localOmegaF = PV(c("localOmegaF")) 
         C(uPsq, sum(uP*uP)*(1/c_squ))
         for (i in 1:27){
                 C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
         }
         for (i in 1:27){
-                #C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
+                C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
 
-                C(omegaS[i],  feqP[i] - f[i] + (1.0 - localOmegaF)*(f[i] - feq[i])) #Superposition operator
-                  
+                #C(omegaS[i],  feqP[i] - f[i] + (1.0 - localOmegaF)*(f[i] - feq[i])) #Superposition operator          
         }
 
         for (i in 1:27){
