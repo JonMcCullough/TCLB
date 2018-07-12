@@ -960,7 +960,24 @@ CudaDeviceFunction void CalcF() {
                     u[1] = ((<?R C(f %*% U[,2]) ?> )/d + 0.5*(AccelY + GravitationY) );
                     u[2] = ((<?R C(f %*% U[,3]) ?> )/d + 0.5*(AccelZ + GravitationZ) );
 
-                    if ((p.dist - p.rad)<0.0) {
+		    real_t dx = p.diff.x;
+		    real_t dy = p.diff.y;
+		    real_t dz = p.diff.z;
+		    if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
+			dx = DNx - abs(dx);
+		    }
+		    
+		    if ((DNy>0) && ((DNy - abs(dy)) < (p.rad + 2))) {
+			dy = DNy - abs(dy);
+		    }
+				
+		    if ((DNz>0) && ((DNz - abs(dz)) < (p.rad + 2))) {
+			dz = DNz - abs(dz);
+		    }
+
+		    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+		    if ((dist - p.rad)<0.0) {
                         uP[0] = p.cvel.x;
                         uP[1] = p.cvel.y;
                         uP[2] = p.cvel.z;
@@ -1000,10 +1017,10 @@ CudaDeviceFunction void CalcF() {
 
                     real_t localCoverage = 0.0;
 
-                    if ((p.dist - p.rad) < -1.0){
+                    if ((dist - p.rad) < -1.0){
                         localCoverage = 1.0;
                     } else{
-                        localCoverage = (p.rad -  0.084/p.rad + 0.5 - p.dist);
+                        localCoverage = (p.rad -  0.084/p.rad + 0.5 - dist);
                     }
 
                     if (localCoverage > 1.0){ localCoverage =  1.0;}
