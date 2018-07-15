@@ -335,6 +335,9 @@ CudaDeviceFunction void Run() {
 		#endif
 	    }
 	    sol = 0;
+	    uPx = 0;
+	    uPy = 0;
+	    uPz = 0;
 }
 
 CudaDeviceFunction void BounceBack()
@@ -942,27 +945,44 @@ CudaDeviceFunction real_t CalcPeriodicSolid(){
         return ret;
 }
 
-
-
 CudaDeviceFunction void CalcF() {
-         for (SyncParticleIterator p(X,Y,Z); p; ++p) {
-                if ((NodeType & NODE_BOUNDARY)==0){
-                    real_t omegaS[27], feqP[27], feq[27], u[3], uP[3];
-                    real_t d, usq, uPsq;
-                    real_t numP = 0;
+	 real_t numP = 0;
+	
+	    real_t omegaS[27], feqP[27], feq[27], u[3], uP[3];
+	    real_t d, usq, uPsq;
+	    
+	    uP[0] = 0.0;
+	    uP[1] = 0.0;
+	    uP[2] = 0.0;
 
-                    uP[0] = 0.0;
-                    uP[1] = 0.0;
-                    uP[2] = 0.0;
+	    d=getRho();
+	    u[0] = ((<?R C(f %*% U[,1]) ?> )/d + 0.5*(AccelX + GravitationX) );
+	    u[1] = ((<?R C(f %*% U[,2]) ?> )/d + 0.5*(AccelY + GravitationY) );
+	    u[2] = ((<?R C(f %*% U[,3]) ?> )/d + 0.5*(AccelZ + GravitationZ) );
 
-                    d=getRho();
-                    u[0] = ((<?R C(f %*% U[,1]) ?> )/d + 0.5*(AccelX + GravitationX) );
-                    u[1] = ((<?R C(f %*% U[,2]) ?> )/d + 0.5*(AccelY + GravitationY) );
-                    u[2] = ((<?R C(f %*% U[,3]) ?> )/d + 0.5*(AccelZ + GravitationZ) );
+                <?R
+                         u = PV(paste("u[",1:3-1,"]",sep=""))
+                         uP = PV(paste("uP[",1:3-1,"]",sep=""))
+                         d = PV("d")
+                         usq = PV ("usq")
+                         uPsq = PV ("uPsq")
+                         feq = PV(paste("feq[",1:27-1,"]",sep=""))
+                         feqP = PV(paste("feqP[",1:27-1,"]",sep=""))
+                         omegaS = PV(paste("omegaS[",1:27-1,"]",sep=""))
+                         omegaF = PV("omegaF")
 
+                      C(usq, sum(u*u)*(1/c_squ))
+                      for (i in 1:27){
+                         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+                      }
+	 ?>
+
+         for (FullParticleIterator p(X,Y,Z); p; ++p) {
+                
 		    real_t dx = p.diff.x;
 		    real_t dy = p.diff.y;
 		    real_t dz = p.diff.z;
+
 		    if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
 			dx = DNx - abs(dx);
 		    }
@@ -977,10 +997,250 @@ CudaDeviceFunction void CalcF() {
 
 		    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
                     
-		    if ((dist - p.rad)<0.0) {
+		    if ((dist - p.rad)<0.5) {
+			numP += 1;
+			uPx = ((numP - 1.0)*uPx + p.cvel.x)/numP;
+			uPy = ((numP - 1.0)*uPy + p.cvel.y)/numP;
+			uPz = ((numP - 1.0)*uPz + p.cvel.z)/numP;
+
+                    real_t localCoverage = 0.0;
+
+                    if ((dist - p.rad) < -1.0){
+                        localCoverage = 1.0;
+                    } else{
+                        localCoverage = (p.rad -  0.084/p.rad + 0.5 - dist);
+                    }
+
+                    if (localCoverage > 1.0){ localCoverage =  1.0;}
+                    if (localCoverage < 0.0){ localCoverage =  0.0;}
+
+		   
+		    sol += localCoverage;
+
+                 }
+             
+        }
+
+                    if (sol > 1.0){ sol =  1.0;}
+                    if (sol < 0.0){ sol =  0.0;}
+
+         for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+                if ((NodeType & NODE_BOUNDARY)==0){
+		    real_t dx = p.diff.x;
+		    real_t dy = p.diff.y;
+		    real_t dz = p.diff.z;
+
+		    if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
+			dx = DNx - abs(dx);
+		    }
+		    
+		    if ((DNy>0) && ((DNy - abs(dy)) < (p.rad + 2))) {
+			dy = DNy - abs(dy);
+		    }
+				
+		    if ((DNz>0) && ((DNz - abs(dz)) < (p.rad + 2))) {
+			dz = DNz - abs(dz);
+		    }
+
+		    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+		    if ((dist - p.rad)<0.5) {
                         uP[0] = p.cvel.x;
                         uP[1] = p.cvel.y;
                         uP[2] = p.cvel.z;
+
+                <?R
+
+                    C(uPsq, sum(uP*uP)*(1/c_squ))
+
+                    for (i in 1:27){
+                        C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+                    }
+                    for (i in 1:27){
+
+			if(Options$NEBB) {
+				C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
+			}
+			if(Options$SUP){
+				C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
+			}
+               }
+                ?>
+
+                    vector_t force;
+                    force.x=0.0; force.y=0.0; force.z=0.0;
+
+                    force.x = -sol * ( <?R C(t(U[,1] %*% omegaS)) ?> );
+                    force.y = -sol * ( <?R C(t(U[,2] %*% omegaS)) ?> );
+                    force.z = -sol * ( <?R C(t(U[,3] %*% omegaS)) ?> );
+
+                    p.applyForce(force);
+		    
+		    
+
+                 }
+             }
+        }
+
+}
+
+// Streamlined, still slow version
+CudaDeviceFunction void CalcF_Originalmk2() {
+	 real_t numP = 0;
+	
+	    real_t omegaS[27], feqP[27], feq[27], u[3], uP[3];
+	    real_t d, usq, uPsq;
+	    
+	    uP[0] = 0.0;
+	    uP[1] = 0.0;
+	    uP[2] = 0.0;
+
+	    d=getRho();
+	    u[0] = ((<?R C(f %*% U[,1]) ?> )/d + 0.5*(AccelX + GravitationX) );
+	    u[1] = ((<?R C(f %*% U[,2]) ?> )/d + 0.5*(AccelY + GravitationY) );
+	    u[2] = ((<?R C(f %*% U[,3]) ?> )/d + 0.5*(AccelZ + GravitationZ) );
+
+                <?R
+                         u = PV(paste("u[",1:3-1,"]",sep=""))
+                         uP = PV(paste("uP[",1:3-1,"]",sep=""))
+                         d = PV("d")
+                         usq = PV ("usq")
+                         uPsq = PV ("uPsq")
+                         feq = PV(paste("feq[",1:27-1,"]",sep=""))
+                         feqP = PV(paste("feqP[",1:27-1,"]",sep=""))
+                         omegaS = PV(paste("omegaS[",1:27-1,"]",sep=""))
+                         omegaF = PV("omegaF")
+
+                      C(usq, sum(u*u)*(1/c_squ))
+                      for (i in 1:27){
+                         C( feq[i],  (((u %*% t(U) * (1/c_squ))[i]) + (((u %*% t(U) * (1/c_squ))[i])*((u %*% t(U) * (1/c_squ))[i])+usq*(-1))*0.5 + 1) * d *tn[i,i])
+                      }
+	 ?>
+
+         for (SyncFullParticleIterator p(X,Y,Z); p; ++p) {
+                if ((NodeType & NODE_BOUNDARY)==0){
+		    real_t dx = p.diff.x;
+		    real_t dy = p.diff.y;
+		    real_t dz = p.diff.z;
+
+		    if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
+			dx = DNx - abs(dx);
+		    }
+		    
+		    if ((DNy>0) && ((DNy - abs(dy)) < (p.rad + 2))) {
+			dy = DNy - abs(dy);
+		    }
+				
+		    if ((DNz>0) && ((DNz - abs(dz)) < (p.rad + 2))) {
+			dz = DNz - abs(dz);
+		    }
+
+		    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+		    if ((dist - p.rad)<0.5) {
+                        uP[0] = p.cvel.x;
+                        uP[1] = p.cvel.y;
+                        uP[2] = p.cvel.z;
+
+			numP += 1;
+			uPx = ((numP - 1.0)*uPx + p.cvel.x)/numP;
+			uPy = ((numP - 1.0)*uPy + p.cvel.y)/numP;
+			uPz = ((numP - 1.0)*uPz + p.cvel.z)/numP;
+
+                <?R
+
+                    C(uPsq, sum(uP*uP)*(1/c_squ))
+
+                    for (i in 1:27){
+                        C(feqP[i], (((uP %*% t(U) *(1/c_squ))[i]) + (((uP %*% t(U) * (1/c_squ))[i])*((uP %*% t(U) * (1/c_squ))[i]) + uPsq*(-1))*0.5 + 1)*d*tn[i,i])
+                    }
+                    for (i in 1:27){
+
+			if(Options$NEBB) {
+				C(omegaS[i],  f[bounce[i]+1] - f[i] + feqP[i] - feq[bounce[i] + 1]) #Non-eq bounceback operator
+			}
+			if(Options$SUP){
+				C(omegaS[i],  feqP[i] - f[i] + (1.0 - omegaF)*(f[i] - feq[i])) #Superposition operator
+			}
+               }
+                ?>
+
+                    real_t localCoverage = 0.0;
+
+                    if ((dist - p.rad) < -1.0){
+                        localCoverage = 1.0;
+                    } else{
+                        localCoverage = (p.rad -  0.084/p.rad + 0.5 - dist);
+                    }
+
+                    if (localCoverage > 1.0){ localCoverage =  1.0;}
+                    if (localCoverage < 0.0){ localCoverage =  0.0;}
+
+                    vector_t force;
+                    force.x=0.0; force.y=0.0; force.z=0.0;
+
+                    force.x = -localCoverage * ( <?R C(t(U[,1] %*% omegaS)) ?> );
+                    force.y = -localCoverage * ( <?R C(t(U[,2] %*% omegaS)) ?> );
+                    force.z = -localCoverage * ( <?R C(t(U[,3] %*% omegaS)) ?> );
+
+                    p.applyForce(force);
+		    
+		    sol += localCoverage;
+
+                 }
+             }
+        }
+
+                    if (sol > 1.0){ sol =  1.0;}
+                    if (sol < 0.0){ sol =  0.0;}
+
+}
+
+//working but slow version
+CudaDeviceFunction void CalcF_orig() {
+	 real_t numP = 0;
+	
+         for (SyncFullParticleIterator p(X,Y,Z); p; ++p) {
+                if ((NodeType & NODE_BOUNDARY)==0){
+                    real_t omegaS[27], feqP[27], feq[27], u[3], uP[3];
+                    real_t d, usq, uPsq;
+                    
+                    uP[0] = 0.0;
+                    uP[1] = 0.0;
+                    uP[2] = 0.0;
+
+                    d=getRho();
+                    u[0] = ((<?R C(f %*% U[,1]) ?> )/d + 0.5*(AccelX + GravitationX) );
+                    u[1] = ((<?R C(f %*% U[,2]) ?> )/d + 0.5*(AccelY + GravitationY) );
+                    u[2] = ((<?R C(f %*% U[,3]) ?> )/d + 0.5*(AccelZ + GravitationZ) );
+
+		    real_t dx = p.diff.x;
+		    real_t dy = p.diff.y;
+		    real_t dz = p.diff.z;
+
+		    if ((DNx>0) && ((DNx - abs(dx)) < (p.rad + 2))) {
+			dx = DNx - abs(dx);
+		    }
+		    
+		    if ((DNy>0) && ((DNy - abs(dy)) < (p.rad + 2))) {
+			dy = DNy - abs(dy);
+		    }
+				
+		    if ((DNz>0) && ((DNz - abs(dz)) < (p.rad + 2))) {
+			dz = DNz - abs(dz);
+		    }
+
+		    real_t dist = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+		    if ((dist - p.rad)<0.5) {
+                        uP[0] = p.cvel.x;
+                        uP[1] = p.cvel.y;
+                        uP[2] = p.cvel.z;
+
+			numP += 1;
+			uPx = ((numP - 1.0)*uPx + p.cvel.x)/numP;
+			uPy = ((numP - 1.0)*uPy + p.cvel.y)/numP;
+			uPz = ((numP - 1.0)*uPz + p.cvel.z)/numP;
 
                 <?R
                          u = PV(paste("u[",1:3-1,"]",sep=""))
@@ -1034,10 +1294,15 @@ CudaDeviceFunction void CalcF() {
                     force.z = -localCoverage * ( <?R C(t(U[,3] %*% omegaS)) ?> );
 
                     p.applyForce(force);
+		    
+		    sol += localCoverage;
+
+                    if (sol > 1.0){ sol =  1.0;}
+                    if (sol < 0.0){ sol =  0.0;}
+
                  }
              }
         }
-	sol = CalcPeriodicSolid();
 }
 
 CudaDeviceFunction void CollisionBGK() {
@@ -1057,22 +1322,22 @@ CudaDeviceFunction void CollisionBGK() {
     u[1] = ((<?R C(f %*% U[,2]) ?>)/d + 0.5*(AccelY + localGravitationY) );
     u[2] = ((<?R C(f %*% U[,3]) ?>)/d + 0.5*(AccelZ + GravitationZ) );
 
-    uP[0] = 0.0;
-    uP[1] = 0.0;
-    uP[2] = 0.0;
+    uP[0] = uPx;
+    uP[1] = uPy;
+    uP[2] = uPz;
 
-    if (sol > 0){
-       for (SyncParticleIterator p(X,Y,Z); p; ++p) {
-	   if ((p.dist - p.rad)<0.0) {
-
-		    numP += 1.0;      
-		      
-		    uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
-		    uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
-		    uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
-	     }
-       }
-    }
+//    if (sol > 0){
+//        for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+//	      if ((p.dist - p.rad)<0.0) {
+//
+//		    numP += 1.0;      
+//		      
+//		    uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+//		    uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+//		    uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
+//	     }
+//        }
+//    }
 
     <?R
 
@@ -1168,9 +1433,9 @@ CudaDeviceFunction void CollisionBGK() {
 	    real_t const d3q27_cy[27] = {0, 0, 0, 1,-1, 0, 0, 1, 1,-1,-1, 0, 0, 0, 0, 1,-1, 1,-1, 1, 1,-1,-1, 1, 1,-1,-1};
 	    real_t const d3q27_cz[27] = {0, 0, 0, 0, 0, 1,-1, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1, 1, 1,-1,-1,-1,-1};
 
-	    uP[0] = 0.0;
-	    uP[1] = 0.0;
-	    uP[2] = 0.0;
+	    uP[0] = uPx;
+	    uP[1] = uPy;
+	    uP[2] = uPz;
 
 	    real_t nrmX, nrmY, nrmZ, length;
 
@@ -1215,18 +1480,18 @@ CudaDeviceFunction void CollisionBGK() {
 	    u[1] = ((<?R C(f %*% U[,2]) ?>)/d + 0.5*(AccelY + localGravitationY) );
 	    u[2] = ((<?R C(f %*% U[,3]) ?>)/d + 0.5*(AccelZ + GravitationZ) );
 
-	    if (sol > 0){
-	       for (SyncParticleIterator p(X,Y,Z); p; ++p) {
-		   if ((p.dist - p.rad)<0.0) {
-
-			    numP += 1.0;      
-			      
-			    uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
-			    uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
-			    uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
-		     }
-	       }
-	    }
+//		 if (sol > 0){
+//		    for (SyncParticleIterator p(X,Y,Z); p; ++p) {
+//			if ((p.dist - p.rad)<0.0) {
+//
+//			    numP += 1.0;      
+//			      
+//			    uP[0] = ((numP - 1.0)*uP[0] + p.cvel.x)/numP;
+//			    uP[1] = ((numP - 1.0)*uP[1] + p.cvel.y)/numP;
+//			    uP[2] = ((numP - 1.0)*uP[2] + p.cvel.z)/numP;
+//		     }
+//	       }
+//	    }
 	<?R	
 	       C(usq, sum(u*u)*(1/c_squ)) 
 	       for (i in 1:27){

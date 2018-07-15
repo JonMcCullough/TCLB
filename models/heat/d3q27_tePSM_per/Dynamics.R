@@ -62,6 +62,9 @@ for (d in rows(DensityAll)){
     AddField( name=d$name,  dx=c(1,-1), dy=c(1,-1), dz=c(1,-1) ) }
 
 AddDensity( name="sol", group="Force",parameter=TRUE)
+AddDensity( name="uPx", group="Force",parameter=TRUE)
+AddDensity( name="uPy", group="Force",parameter=TRUE)
+AddDensity( name="uPz", group="Force",parameter=TRUE)
 
 AddQuantity(name="Solid",unit="1")
 AddQuantity(name="U",unit="m/s",vector=T)
