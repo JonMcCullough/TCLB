@@ -87,7 +87,6 @@ AddSetting(name="InitVelocityZ", default="0.0", comment="Initialisation z-veloci
 
 AddSetting(name="InletPressure", InletDensity='1.0+InletPressure/3', default="0Pa", comment='inlet pressure')
 AddSetting(name="InletDensity", default=1, comment='inlet density')
-AddSetting(name="Pressure", default="0Pa", comment='Inlet pressure', zonal=TRUE)
 
 AddSetting(name="GravitationX", default=0.0, comment='applied (rho)*GravitationX')
 AddSetting(name="GravitationY", default=0.0, comment='applied (rho)*GravitationY')
@@ -108,13 +107,6 @@ AddNodeType(name="WWall", group="BOUNDARY")
 AddNodeType(name="SWall", group="BOUNDARY")
 AddNodeType(name="FWall", group="BOUNDARY")
 AddNodeType(name="BWall", group="BOUNDARY")
-
-AddNodeType(name="NPressure", group="BOUNDARY")
-AddNodeType(name="EPressure", group="BOUNDARY")
-AddNodeType(name="WPressure", group="BOUNDARY")
-AddNodeType(name="SPressure", group="BOUNDARY")
-AddNodeType(name="FPressure", group="BOUNDARY")
-AddNodeType(name="BPressure", group="BOUNDARY")
 
 if (!(Options$Isothermal)){
 	AddField('TotEnergy', stencil3d=1, group="h")
